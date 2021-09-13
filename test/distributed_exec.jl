@@ -1925,4 +1925,5 @@ end
 # Run topology tests last after removing all workers, since a given
 # cluster at any time only supports a single topology.
 rmprocs(workers())
+include("threads.jl")
 include("topology.jl")
