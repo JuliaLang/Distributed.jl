@@ -3,6 +3,10 @@
 using Test, Distributed, Random, Serialization, Sockets
 import Distributed: launch, manage
 
+if haskey(ENV, "CI")
+    @test !occursin("stdlib", pathof(Distributed))
+end
+
 @test cluster_cookie() isa String
 
 include(joinpath(Sys.BINDIR, "..", "share", "julia", "test", "testenv.jl"))
