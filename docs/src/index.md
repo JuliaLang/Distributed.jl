@@ -1,7 +1,7 @@
 # [Distributed Computing](@id man-distributed)
-Tools for distributed parallel processing.
 
 ```@docs
+Distributed
 Distributed.addprocs
 Distributed.nprocs
 Distributed.nworkers
@@ -31,18 +31,18 @@ Distributed.AbstractWorkerPool
 Distributed.WorkerPool
 Distributed.CachingPool
 Distributed.default_worker_pool
-Distributed.clear!(::CachingPool)
+Distributed.clear!
 Distributed.remote
 Distributed.remotecall(::Any, ::AbstractWorkerPool, ::Any...)
 Distributed.remotecall_wait(::Any, ::AbstractWorkerPool, ::Any...)
 Distributed.remotecall_fetch(::Any, ::AbstractWorkerPool, ::Any...)
 Distributed.remote_do(::Any, ::AbstractWorkerPool, ::Any...)
+Distributed.@spawn
 Distributed.@spawnat
 Distributed.@fetch
 Distributed.@fetchfrom
 Distributed.@distributed
 Distributed.@everywhere
-Distributed.clear!(::Any, ::Any; ::Any)
 Distributed.remoteref_id
 Distributed.channel_from_id
 Distributed.worker_id_from_socket
