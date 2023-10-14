@@ -2,11 +2,11 @@ name: CI
 on:
   pull_request:
     branches:
-      - 'main'
+      - 'master'
       - 'release-*'
   push:
     branches:
-      - 'main'
+      - 'master'
       - 'release-*'
     tags: '*'
 concurrency:
