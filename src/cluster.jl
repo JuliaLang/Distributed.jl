@@ -1318,18 +1318,16 @@ end
 
 using Random: randstring
 
-let inited = false
-    # do initialization that's only needed when there is more than 1 processor
-    global function init_multi()
-        if !inited
-            inited = true
-            push!(Base.package_callbacks, _require_callback)
-            atexit(terminate_all_workers)
-            init_bind_addr()
-            cluster_cookie(randstring(HDR_COOKIE_LEN))
-        end
-        return nothing
+# do initialization that's only needed when there is more than 1 processor
+const inited = Threads.Atomic{Bool}(false)
+function init_multi()
+    if !Threads.atomic_cas!(inited, false, true)
+        push!(Base.package_callbacks, _require_callback)
+        atexit(terminate_all_workers)
+        init_bind_addr()
+        cluster_cookie(randstring(HDR_COOKIE_LEN))
     end
+    return nothing
 end
 
 function init_parallel()
