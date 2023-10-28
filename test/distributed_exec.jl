@@ -3,6 +3,13 @@
 using Test, Distributed, Random, Serialization, Sockets
 import Distributed: launch, manage
 
+sharedir = normpath(joinpath(Sys.BINDIR, "..", "share"))
+if parse(Bool, get(ENV, "JULIA_DISTRIBUTED_TESTING_STANDALONE", "false"))
+    @test !startswith(pathof(Distributed), sharedir)
+else
+    @test startswith(pathof(Distributed), sharedir)
+end
+
 @test cluster_cookie() isa String
 
 include(joinpath(Sys.BINDIR, "..", "share", "julia", "test", "testenv.jl"))
