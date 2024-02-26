@@ -1906,7 +1906,7 @@ end end
 include("splitrange.jl")
 
 # Clear all workers for timeout tests (issue #45785)
-rmprocs(workers())
+nprocs() > 1 && rmprocs(workers())
 begin
     # First, assert that we get no messages when we close a cooperative worker
     w = only(addprocs(1))
@@ -1927,5 +1927,5 @@ end
 
 # Run topology tests last after removing all workers, since a given
 # cluster at any time only supports a single topology.
-rmprocs(workers())
+nprocs() > 1 && rmprocs(workers())
 include("topology.jl")
