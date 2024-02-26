@@ -134,7 +134,7 @@ for (i, (from,to)) in enumerate(combinations)
 end
 
 # With lazy=false, all connections ought to be setup during `addprocs`
-rmprocs(workers())
+nprocs() > 1 && rmprocs(workers())
 addprocs_with_testenv(8; lazy=false)
 def_count_conn()
 @test sum(asyncmap(p->remotecall_fetch(count_connected_workers,p), workers())) == 64
