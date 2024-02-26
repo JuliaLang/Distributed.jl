@@ -1920,6 +1920,8 @@ begin
         remote_do(w) do
             # Cause the 'exit()' message that `rmprocs()` sends to do nothing
             Core.eval(Base, :(exit() = nothing))
+            # Hide the trace that `rmprocs()` will cause this worker to show
+            redirect_stderr(devnull)
         end
         wait(rmprocs([w]))
     end
