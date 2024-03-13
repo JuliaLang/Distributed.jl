@@ -1929,10 +1929,11 @@ end
 
 # test logging
 w = only(addprocs(1))
+@everywhere using Logging
 @test_logs (:info, "from pid $w") begin
     prev_logger = global_logger(current_logger())
     try
-        wait(@spawnat w with_env(RemoteLogger(1)) do
+        wait(@spawnat w with_logger(RemoteLogger(1)) do
                 @info("from pid $(myid())")
             end)
     finally

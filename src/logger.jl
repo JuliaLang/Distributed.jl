@@ -23,5 +23,5 @@ end
 function Logging.handle_message(logger::RemoteLogger, level::Logging.LogLevel, message, _module, _group, _id,
     _file, _line; kwargs...)
     @nospecialize
-    remote_do(logmsg_code, logger.pid, level, message, _module, _group, _id, _file, _line; pid=myid(), kwargs...)
+    remote_do(logmsg, logger.pid, level, message, _module, _group, _id, _file, _line; pid=myid(), kwargs...)
 end
