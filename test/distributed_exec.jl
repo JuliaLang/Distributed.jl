@@ -1,6 +1,6 @@
 # This file is a part of Julia. License is MIT: https://julialang.org/license
 
-using Test, Distributed, Random, Serialization, Sockets
+using Test, Distributed, Random, Serialization, Sockets, Logging
 import Distributed: launch, manage
 
 sharedir = normpath(joinpath(Sys.BINDIR, "..", "share"))
@@ -1926,6 +1926,20 @@ begin
         wait(rmprocs([w]))
     end
 end
+
+# test logging
+w = only(addprocs(1))
+@test_logs (:info, "from pid $w") begin
+    prev_logger = global_logger(current_logger())
+    try
+        wait(@spawnat w with_env(RemoteLogger(1)) do
+                @info("from pid $(myid())")
+            end)
+    finally
+        global_logger(prev_logger)
+    end
+end
+wait(rmprocs([w]))
 
 # Run topology tests last after removing all workers, since a given
 # cluster at any time only supports a single topology.
