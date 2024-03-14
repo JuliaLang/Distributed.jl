@@ -38,6 +38,7 @@ For controlling other processes via RPC:
 For communicating between processes in the style of a channel or stream:
 
 - `RemoteChannel` - a `Channel`-like object that can be `put!` to or `take!` from any process
+- `RemoteLogger`  - an `AbstractLogger` forwarding logs to a given worker 
 
 For controlling multiple processes at once:
 
