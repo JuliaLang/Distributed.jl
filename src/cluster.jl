@@ -706,14 +706,16 @@ function create_worker(manager, wconfig)
     join_message = JoinPGRPMsg(w.id, all_locs, PGRP.topology, enable_threaded_blas, isclusterlazy())
     send_msg_now(w, MsgHeader(RRID(0,0), ntfy_oid), join_message)
 
-    @async manage(w.manager, w.id, w.config, :register)
+    errormonitor(@async manage(w.manager, w.id, w.config, :register))
     # wait for rr_ntfy_join with timeout
     timedout = false
-    @async begin
-        sleep($timeout)
-        timedout = true
-        put!(rr_ntfy_join, 1)
-    end
+    errormonitor(
+        @async begin
+            sleep($timeout)
+            timedout = true
+            put!(rr_ntfy_join, 1)
+        end
+    )
     wait(rr_ntfy_join)
     if timedout
         error("worker did not connect within $timeout seconds")
@@ -763,17 +765,20 @@ function check_master_connect()
     if ccall(:jl_running_on_valgrind,Cint,()) != 0
         return
     end
-    @async begin
-        start = time_ns()
-        while !haskey(map_pid_wrkr, 1) && (time_ns() - start) < timeout
-            sleep(1.0)
-        end
 
-        if !haskey(map_pid_wrkr, 1)
-            print(stderr, "Master process (id 1) could not connect within $(timeout/1e9) seconds.\nexiting.\n")
-            exit(1)
+    errormonitor(
+        @async begin
+            start = time_ns()
+            while !haskey(map_pid_wrkr, 1) && (time_ns() - start) < timeout
+                sleep(1.0)
+            end
+
+            if !haskey(map_pid_wrkr, 1)
+                print(stderr, "Master process (id 1) could not connect within $(timeout/1e9) seconds.\nexiting.\n")
+                exit(1)
+            end
         end
-    end
+    )
 end
 
 
