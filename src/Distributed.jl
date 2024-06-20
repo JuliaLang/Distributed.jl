@@ -15,7 +15,7 @@ using Base: Process, Semaphore, JLOptions, buffer_writes, @async_unwrap,
             julia_cmd, AsyncGenerator, acquire, release, invokelatest,
             shell_escape_posixly, shell_escape_csh,
             shell_escape_wincmd, escape_microsoft_c_args,
-            uv_error, something, notnothing, isbuffered, mapany
+            uv_error, something, notnothing, isbuffered, mapany, SizeUnknown
 using Base.Threads: Event
 
 using Serialization, Sockets
