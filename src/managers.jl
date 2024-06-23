@@ -747,12 +747,12 @@ function kill(manager::LocalManager, pid::Int, config::WorkerConfig; exit_timeou
 
         # Check to see if our child exited, and if not, send an actual kill signal
         if !process_exited(config.process)
-            @warn("Failed to gracefully kill worker $(pid), sending SIGTERM")
-            kill(config.process, Base.SIGTERM)
+            @warn("Failed to gracefully kill worker $(pid), sending SIGQUIT")
+            kill(config.process, Base.SIGQUIT)
 
             sleep(term_timeout)
             if !process_exited(config.process)
-                @warn("Worker $(pid) ignored SIGTERM, sending SIGKILL")
+                @warn("Worker $(pid) ignored SIGQUIT, sending SIGKILL")
                 kill(config.process, Base.SIGKILL)
             end
         end
