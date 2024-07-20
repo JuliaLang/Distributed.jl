@@ -167,10 +167,11 @@ function deserialize_global_from_main(s::ClusterSerializer, sym)
             return nothing
         end
     end
+    Core.eval(Main, Expr(:global, sym))
     if sym_isconst
         ccall(:jl_set_const, Cvoid, (Any, Any, Any), Main, sym, v)
     else
-        setglobal!(Main, sym, v)
+        invokelatest(setglobal!, Main, sym, v)
     end
     return nothing
 end

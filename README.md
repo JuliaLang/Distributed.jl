@@ -1,6 +1,6 @@
 # Distributed
 
-The `Distributed` package provides functionality for creating and controlling multiple Julia processes remotely, and for performing distributed and parallel computing. It uses network sockets or other supported interfaces to communicate between Julia processes, and relies on Julia's `Serialization` stdlib package to transform Julia objects into a format that can be transferred between processes efficiently. It provides a full set of utilities to create and destroy new Julia processes and add them to a "cluster" (a collection of Julia processes connected together), as well as functions to perform Remote Procedure Calls (RPC) between the processes within a cluster. See [`API`](@ref) for details.
+The `Distributed` package provides functionality for creating and controlling multiple Julia processes remotely, and for performing distributed and parallel computing. It uses network sockets or other supported interfaces to communicate between Julia processes, and relies on Julia's `Serialization` stdlib package to transform Julia objects into a format that can be transferred between processes efficiently. It provides a full set of utilities to create and destroy new Julia processes and add them to a "cluster" (a collection of Julia processes connected together), as well as functions to perform Remote Procedure Calls (RPC) between the processes within a cluster. See the `API` section for details.
 
 This package ships as part of the Julia stdlib.
 
@@ -52,5 +52,4 @@ For controlling multiple processes at once:
 
 Julia processes connected with `Distributed` are all assigned a cluster-unique `Int` identifier, starting from `1`. The first Julia process within a cluster is given ID `1`, while other processes added via `addprocs` get incrementing IDs (`2`, `3`, etc.). Functions and macros which communicate from one process to another usually take one or more identifiers to determine which process they target - for example, `remotecall_fetch(myid, 2)` calls `myid()` on process 2.
 
-!!! note
-    Only process 1 (often called the "head", "primary", or "master") may add or remove processes, and manages the rest of the cluster. Other processes (called "workers" or "worker processes") may still call functions on each other and send and receive data, but `addprocs`/`rmprocs` on worker processes will fail with an error.
+**Note:** Only process 1 (often called the "head", "primary", or "master") may add or remove processes, and manages the rest of the cluster. Other processes (called "workers" or "worker processes") may still call functions on each other and send and receive data, but `addprocs`/`rmprocs` on worker processes will fail with an error.
