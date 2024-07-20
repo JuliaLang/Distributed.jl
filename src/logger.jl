@@ -1,7 +1,7 @@
 """
     RemoteLogger(pid=1, min_level=Info)
 
-Logger that forward all logging to worker `pid` via `remote_do` along with
+Logger that forwards all logging to worker `pid` via `remote_do` along with
 adding the current worker `id` as a `pid` kwarg.
 """
 struct RemoteLogger <: Logging.AbstractLogger
@@ -17,7 +17,7 @@ Logging.shouldlog(logger::RemoteLogger, level, _module, group, id) = true
 
 # TODO: probably should live in base/logging.jl?
 function logmsg(level::Logging.LogLevel, message, _module, _group, _id, _file, _line; kwargs...)
-    Logging.@logmsg level message _module=_module _group=_group _id=_id _file=_file _line=_line kwargs...
+    Logging.@logmsg level message _module = _module _group = _group _id = _id _file = _file _line = _line kwargs...
 end
 
 function Logging.handle_message(logger::RemoteLogger, level::Logging.LogLevel, message, _module, _group, _id,
