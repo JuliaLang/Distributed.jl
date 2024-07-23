@@ -163,10 +163,10 @@ function check_worker_state(w::Worker)
         else
             w.ct_time = time()
             if myid() > w.id
-                t = @async exec_conn_func(w)
+                t = Threads.@spawn exec_conn_func(w)
             else
                 # route request via node 1
-                t = @async remotecall_fetch((p,to_id) -> remotecall_fetch(exec_conn_func, p, to_id), 1, w.id, myid())
+                t = Threads.@spawn remotecall_fetch((p,to_id) -> remotecall_fetch(exec_conn_func, p, to_id), 1, w.id, myid())
             end
             errormonitor(t)
             wait_for_conn(w)
@@ -258,7 +258,7 @@ function start_worker(out::IO, cookie::AbstractString=readline(stdin); close_std
     else
         sock = listen(interface, LPROC.bind_port)
     end
-    errormonitor(@async while isopen(sock)
+    errormonitor(Threads.@spawn while isopen(sock)
         client = accept(sock)
         process_messages(client, client, true)
     end)
@@ -290,7 +290,7 @@ end
 
 
 function redirect_worker_output(ident, stream)
-    t = @async while !eof(stream)
+    t = Threads.@spawn while !eof(stream)
         line = readline(stream)
         if startswith(line, "      From worker ")
             # stdout's of "additional" workers started from an initial worker on a host are not available
@@ -329,7 +329,7 @@ function read_worker_host_port(io::IO)
     leader = String[]
     try
         while ntries > 0
-            readtask = @async readline(io)
+            readtask = Threads.@spawn readline(io)
             yield()
             while !istaskdone(readtask) && ((time_ns() - t0) < timeout)
                 sleep(0.05)
@@ -430,7 +430,7 @@ if launching workers programmatically, execute `addprocs` in its own task.
 
 ```julia
 # On busy clusters, call `addprocs` asynchronously
-t = @async addprocs(...)
+t = Threads.@spawn addprocs(...)
 ```
 
 ```julia
@@ -496,13 +496,13 @@ function addprocs_locked(manager::ClusterManager; kwargs...)
     # call manager's `launch` is a separate task. This allows the master
     # process initiate the connection setup process as and when workers come
     # online
-    t_launch = @async launch(manager, params, launched, launch_ntfy)
+    t_launch = Threads.@spawn launch(manager, params, launched, launch_ntfy)
 
     @sync begin
         while true
             if isempty(launched)
                 istaskdone(t_launch) && break
-                @async begin
+                Threads.@spawn begin
                     sleep(1)
                     notify(launch_ntfy)
                 end
@@ -512,7 +512,7 @@ function addprocs_locked(manager::ClusterManager; kwargs...)
             if !isempty(launched)
                 wconfig = popfirst!(launched)
                 let wconfig=wconfig
-                    @async setup_launched_worker(manager, wconfig, launched_q)
+                    Threads.@spawn setup_launched_worker(manager, wconfig, launched_q)
                 end
             end
         end
@@ -592,7 +592,7 @@ function launch_n_additional_processes(manager, frompid, fromconfig, cnt, launch
             wconfig.port = port
 
             let wconfig=wconfig
-                @async begin
+                Threads.@spawn begin
                     pid = create_worker(manager, wconfig)
                     remote_do(redirect_output_from_additional_worker, frompid, pid, port)
                     push!(launched_q, pid)
@@ -759,7 +759,7 @@ function check_master_connect()
     end
 
     errormonitor(
-        @async begin
+        Threads.@spawn begin
             start = time_ns()
             while !haskey(map_pid_wrkr, 1) && (time_ns() - start) < timeout
                 sleep(1.0)
@@ -1055,13 +1055,13 @@ function rmprocs(pids...; waitfor=typemax(Int))
 
     pids = vcat(pids...)
     if waitfor == 0
-        t = @async _rmprocs(pids, typemax(Int))
+        t = Threads.@spawn _rmprocs(pids, typemax(Int))
         yield()
         return t
     else
         _rmprocs(pids, waitfor)
         # return a dummy task object that user code can wait on.
-        return @async nothing
+        return Threads.@spawn nothing
     end
 end
 
@@ -1244,7 +1244,7 @@ function interrupt(pids::AbstractVector=workers())
     @assert myid() == 1
     @sync begin
         for pid in pids
-            @async interrupt(pid)
+            Threads.@spawn interrupt(pid)
         end
     end
 end
