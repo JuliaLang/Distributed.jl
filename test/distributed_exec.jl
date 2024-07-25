@@ -1958,5 +1958,8 @@ end
 
 # Run topology tests last after removing all workers, since a given
 # cluster at any time only supports a single topology.
-nprocs() > 1 && rmprocs(workers())
+if nprocs() > 1
+    rmprocs(workers())
+end
+include("threads.jl")
 include("topology.jl")
