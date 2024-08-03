@@ -768,6 +768,9 @@ close(rr::RemoteChannel) = call_on_owner(close_ref, rr)
 isopen_ref(rid) = isopen(lookup_ref(rid).c)
 isopen(rr::RemoteChannel) = call_on_owner(isopen_ref, rr)
 
+isempty_ref(rid) = isempty(lookup_ref(rid).c)
+Base.isempty(rr::RemoteChannel) = call_on_owner(isempty_ref, rr)
+
 getindex(r::RemoteChannel) = fetch(r)
 getindex(r::Future) = fetch(r)
 
