@@ -8,6 +8,7 @@ An `AbstractWorkerPool` should implement:
   - [`push!`](@ref) - add a new worker to the overall pool (available + busy)
   - [`put!`](@ref) - put back a worker to the available pool
   - [`take!`](@ref) - take a worker from the available pool (to be used for remote function execution)
+  - [`wait`](@ref) - block until a worker is available
   - [`length`](@ref) - number of workers available in the overall pool
   - [`isready`](@ref) - return false if a `take!` on the pool would block, else true
 
@@ -120,6 +121,11 @@ function wp_local_take!(pool::AbstractWorkerPool)
     return worker
 end
 
+function wp_local_wait(pool::AbstractWorkerPool)
+    wait(pool.channel)
+    return nothing
+end
+
 function remotecall_pool(rc_f, f, pool::AbstractWorkerPool, args...; kwargs...)
     worker = take!(pool)
     try
@@ -133,7 +139,7 @@ end
 # NOTE: remotecall_fetch does it automatically, but this will be more efficient as
 # it avoids the overhead associated with a local remotecall.
 
-for (func, rt) = ((:length, Int), (:isready, Bool), (:workers, Vector{Int}), (:nworkers, Int), (:take!, Int))
+for (func, rt) = ((:length, Int), (:isready, Bool), (:workers, Vector{Int}), (:nworkers, Int), (:take!, Int), (:wait, Nothing))
     func_local = Symbol(string("wp_local_", func))
     @eval begin
         function ($func)(pool::WorkerPool)
