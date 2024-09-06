@@ -12,3 +12,4 @@ if !success(pipeline(cmd; stdout=stdout, stderr=stderr)) && ccall(:jl_running_on
 end
 
 include("managers.jl")
+include("persistent_workers.jl")
