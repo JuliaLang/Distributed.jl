@@ -13,7 +13,7 @@ using Distributed
         wait=false)
     try
     cluster_cookie(cookie)
-    sleep(1)
+    sleep(10)
 
     p = addprocs(PersistentWorkerManager(port))[]
     @test procs() == [1, p]
