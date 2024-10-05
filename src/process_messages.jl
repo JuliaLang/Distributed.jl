@@ -85,7 +85,7 @@ function schedule_call(rid, thunk)
         rv = RemoteValue(def_rv_channel())
         (PGRP::ProcessGroup).refs[rid] = rv
         push!(rv.clientset, rid.whence)
-        errormonitor(@async run_work_thunk(rv, thunk))
+        errormonitor(Threads.@spawn run_work_thunk(rv, thunk))
         return rv
     end
 end
@@ -118,7 +118,7 @@ end
 
 ## message event handlers ##
 function process_messages(r_stream::TCPSocket, w_stream::TCPSocket, incoming::Bool=true)
-    errormonitor(@async process_tcp_streams(r_stream, w_stream, incoming))
+    errormonitor(Threads.@spawn process_tcp_streams(r_stream, w_stream, incoming))
 end
 
 function process_tcp_streams(r_stream::TCPSocket, w_stream::TCPSocket, incoming::Bool)
@@ -148,7 +148,7 @@ Julia version number to perform the authentication handshake.
 See also [`cluster_cookie`](@ref).
 """
 function process_messages(r_stream::IO, w_stream::IO, incoming::Bool=true)
-    errormonitor(@async message_handler_loop(r_stream, w_stream, incoming))
+    errormonitor(Threads.@spawn message_handler_loop(r_stream, w_stream, incoming))
 end
 
 function message_handler_loop(r_stream::IO, w_stream::IO, incoming::Bool)
@@ -283,7 +283,7 @@ function handle_msg(msg::CallMsg{:call}, header, r_stream, w_stream, version)
     schedule_call(header.response_oid, ()->invokelatest(msg.f, msg.args...; msg.kwargs...))
 end
 function handle_msg(msg::CallMsg{:call_fetch}, header, r_stream, w_stream, version)
-    errormonitor(@async begin
+    errormonitor(Threads.@spawn begin
         v = run_work_thunk(()->invokelatest(msg.f, msg.args...; msg.kwargs...), false)
         if isa(v, SyncTake)
             try
@@ -299,7 +299,7 @@ function handle_msg(msg::CallMsg{:call_fetch}, header, r_stream, w_stream, versi
 end
 
 function handle_msg(msg::CallWaitMsg, header, r_stream, w_stream, version)
-    errormonitor(@async begin
+    errormonitor(Threads.@spawn begin
         rv = schedule_call(header.response_oid, ()->invokelatest(msg.f, msg.args...; msg.kwargs...))
         deliver_result(w_stream, :call_wait, header.notify_oid, fetch(rv.c))
         nothing
@@ -307,7 +307,7 @@ function handle_msg(msg::CallWaitMsg, header, r_stream, w_stream, version)
 end
 
 function handle_msg(msg::RemoteDoMsg, header, r_stream, w_stream, version)
-    errormonitor(@async run_work_thunk(()->invokelatest(msg.f, msg.args...; msg.kwargs...), true))
+    errormonitor(Threads.@spawn run_work_thunk(()->invokelatest(msg.f, msg.args...; msg.kwargs...), true))
 end
 
 function handle_msg(msg::ResultMsg, header, r_stream, w_stream, version)
@@ -350,7 +350,7 @@ function handle_msg(msg::JoinPGRPMsg, header, r_stream, w_stream, version)
                 # The constructor registers the object with a global registry.
                 Worker(rpid, ()->connect_to_peer(cluster_manager, rpid, wconfig))
             else
-                @async connect_to_peer(cluster_manager, rpid, wconfig)
+                Threads.@spawn connect_to_peer(cluster_manager, rpid, wconfig)
             end
         end
     end
