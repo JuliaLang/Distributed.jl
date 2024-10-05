@@ -185,9 +185,9 @@ processes to have execute the expression.
 
 Similar to calling `remotecall_eval(Main, procs, expr)`, but with two extra features:
 
-    - `using` and `import` statements run on the calling process first, to ensure
-      packages are precompiled.
-    - The current source file path used by `include` is propagated to other processes.
+- `using` and `import` statements run on the calling process first, to ensure
+  packages are precompiled.
+- The current source file path used by `include` is propagated to other processes.
 """
 macro everywhere(ex)
     procs = GlobalRef(@__MODULE__, :procs)
