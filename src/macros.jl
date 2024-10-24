@@ -191,7 +191,7 @@ Similar to calling `remotecall_eval(Main, procs, expr)`, but with two extra feat
 """
 macro everywhere(ex)
     procs = GlobalRef(@__MODULE__, :procs)
-    return esc(:($(Distributed).@everywhere $procs() $ex))
+    return esc(:($(DistributedNext).@everywhere $procs() $ex))
 end
 
 macro everywhere(procs, ex)

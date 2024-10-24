@@ -234,6 +234,15 @@ function parse_machine(machine::AbstractString)
     (hoststr, portnum)
 end
 
+function get_worker_arg(cookie=nothing)
+    if isnothing(cookie)
+        return `-E 'using DistributedNext; DistributedNext.start_worker()'`
+    else
+        code_str = "using DistributedNext; DistributedNext.start_worker(\"$(cookie)\")"
+        return `-E $(code_str)`
+    end
+end
+
 function launch_on_machine(manager::SSHManager, machine::AbstractString, cnt, params::Dict, launched::Array, launch_ntfy::Condition)
     shell = params[:shell]
     ssh = params[:ssh]
@@ -257,10 +266,11 @@ function launch_on_machine(manager::SSHManager, machine::AbstractString, cnt, pa
     if length(machine_bind) > 1
         exeflags = `--bind-to $(machine_bind[2]) $exeflags`
     end
+
     if cmdline_cookie
-        exeflags = `$exeflags --worker=$(cluster_cookie())`
+        exeflags = `$exeflags $(get_worker_arg(cluster_cookie()))`
     else
-        exeflags = `$exeflags --worker`
+        exeflags = `$exeflags $(get_worker_arg())`
     end
 
     host, portnum = parse_machine(machine_bind[1])
@@ -518,7 +528,7 @@ function launch(manager::LocalManager, params::Dict, launched::Array, c::Conditi
     end
 
     for i in 1:manager.np
-        cmd = `$(julia_cmd(exename)) $exeflags --bind-to $bind_to --worker`
+        cmd = `$(julia_cmd(exename)) $exeflags --bind-to $bind_to $(get_worker_arg())`
         io = open(detach(setenv(addenv(cmd, env), dir=dir)), "r+")
         write_cookie(io)
 

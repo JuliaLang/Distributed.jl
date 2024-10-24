@@ -1,20 +1,13 @@
 # This file is a part of Julia. License is MIT: https://julialang.org/license
 
-using Test, Distributed, Random, Serialization, Sockets
-import Distributed: launch, manage
-
-sharedir = normpath(joinpath(Sys.BINDIR, "..", "share"))
-if parse(Bool, get(ENV, "JULIA_DISTRIBUTED_TESTING_STANDALONE", "false"))
-    @test !startswith(pathof(Distributed), sharedir)
-else
-    @test startswith(pathof(Distributed), sharedir)
-end
+using Test, DistributedNext, Random, Serialization, Sockets
+import DistributedNext: launch, manage
 
 @test cluster_cookie() isa String
 
 include(joinpath(Sys.BINDIR, "..", "share", "julia", "test", "testenv.jl"))
 
-@test Distributed.extract_imports(:(begin; import Foo, Bar; let; using Baz; end; end)) ==
+@test DistributedNext.extract_imports(:(begin; import Foo, Bar; let; using Baz; end; end)) ==
       Any[:(import Foo, Bar), :(using Baz)]
 
 # Test a few "remote" invocations when no workers are present
@@ -53,11 +46,11 @@ id_me = myid()
 id_other = filter(x -> x != id_me, procs())[rand(1:(nprocs()-1))]
 
 # Test role
-@everywhere using Distributed
-@test Distributed.myrole() === :master
+@everywhere using DistributedNext
+@test DistributedNext.myrole() === :master
 for wid = workers()
     wrole = remotecall_fetch(wid) do
-        Distributed.myrole()
+        DistributedNext.myrole()
     end
     @test wrole === :worker
 end
@@ -172,27 +165,27 @@ function include_thread_unsafe_tests()
     return true
 end
 
-# Distributed GC tests for Futures
+# DistributedNext GC tests for Futures
 function test_futures_dgc(id)
     f = remotecall(myid, id)
     fid = remoteref_id(f)
 
     # remote value should be deleted after a fetch
-    @test remotecall_fetch(k->(yield();haskey(Distributed.PGRP.refs, k)), id, fid) == true
+    @test remotecall_fetch(k->(yield();haskey(DistributedNext.PGRP.refs, k)), id, fid) == true
     @test f.v === nothing
     @test fetch(f) == id
     @test f.v !== nothing
     yield(); # flush gc msgs
-    @test poll_while(() -> remotecall_fetch(k->(yield();haskey(Distributed.PGRP.refs, k)), id, fid))
+    @test poll_while(() -> remotecall_fetch(k->(yield();haskey(DistributedNext.PGRP.refs, k)), id, fid))
 
     # if unfetched, it should be deleted after a finalize
     f = remotecall(myid, id)
     fid = remoteref_id(f)
-    @test remotecall_fetch(k->(yield();haskey(Distributed.PGRP.refs, k)), id, fid) == true
+    @test remotecall_fetch(k->(yield();haskey(DistributedNext.PGRP.refs, k)), id, fid) == true
     @test f.v === nothing
     finalize(f)
     yield(); # flush gc msgs
-    @test poll_while(() -> remotecall_fetch(k->(yield();haskey(Distributed.PGRP.refs, k)), id, fid))
+    @test poll_while(() -> remotecall_fetch(k->(yield();haskey(DistributedNext.PGRP.refs, k)), id, fid))
 end
 
 test_futures_dgc(id_me)
@@ -208,23 +201,23 @@ fstore = RemoteChannel(wid2)
 put!(fstore, f)
 
 @test fetch(f) == wid1
-@test remotecall_fetch(k->haskey(Distributed.PGRP.refs, k), wid1, fid) == true
+@test remotecall_fetch(k->haskey(DistributedNext.PGRP.refs, k), wid1, fid) == true
 remotecall_fetch(r->(fetch(fetch(r)); yield()), wid2, fstore)
 sleep(0.5) # to ensure that wid2 gc messages have been executed on wid1
-@test remotecall_fetch(k->haskey(Distributed.PGRP.refs, k), wid1, fid) == false
+@test remotecall_fetch(k->haskey(DistributedNext.PGRP.refs, k), wid1, fid) == false
 
 # put! should release remote reference since it would have been cached locally
 f = Future(wid1)
 fid = remoteref_id(f)
 
 # should not be created remotely till accessed
-@test remotecall_fetch(k->haskey(Distributed.PGRP.refs, k), wid1, fid) == false
+@test remotecall_fetch(k->haskey(DistributedNext.PGRP.refs, k), wid1, fid) == false
 # create it remotely
 isready(f)
 
-@test remotecall_fetch(k->haskey(Distributed.PGRP.refs, k), wid1, fid) == true
+@test remotecall_fetch(k->haskey(DistributedNext.PGRP.refs, k), wid1, fid) == true
 put!(f, :OK)
-@test remotecall_fetch(k->haskey(Distributed.PGRP.refs, k), wid1, fid) == false
+@test remotecall_fetch(k->haskey(DistributedNext.PGRP.refs, k), wid1, fid) == false
 @test fetch(f) === :OK
 
 # RemoteException should be thrown on a put! when another process has set the value
@@ -235,7 +228,7 @@ fstore = RemoteChannel(wid2)
 put!(fstore, f) # send f to wid2
 put!(f, :OK) # set value from master
 
-@test remotecall_fetch(k->haskey(Distributed.PGRP.refs, k), wid1, fid) == true
+@test remotecall_fetch(k->haskey(DistributedNext.PGRP.refs, k), wid1, fid) == true
 
 testval = remotecall_fetch(wid2, fstore) do x
     try
@@ -258,30 +251,30 @@ end
 end
 
 f = remotecall_wait(identity, id_other, ones(10))
-rrid = Distributed.RRID(f.whence, f.id)
+rrid = DistributedNext.RRID(f.whence, f.id)
 remotecall_fetch(f25847, id_other, f)
-@test BitSet([id_me]) == remotecall_fetch(()->Distributed.PGRP.refs[rrid].clientset, id_other)
+@test BitSet([id_me]) == remotecall_fetch(()->DistributedNext.PGRP.refs[rrid].clientset, id_other)
 
 remotecall_fetch(f25847, id_other, f)
-@test BitSet([id_me]) == remotecall_fetch(()->Distributed.PGRP.refs[rrid].clientset, id_other)
+@test BitSet([id_me]) == remotecall_fetch(()->DistributedNext.PGRP.refs[rrid].clientset, id_other)
 
 finalize(f)
 yield() # flush gc msgs
-@test poll_while(() -> remotecall_fetch(chk_rrid->(yield(); haskey(Distributed.PGRP.refs, chk_rrid)), id_other, rrid))
+@test poll_while(() -> remotecall_fetch(chk_rrid->(yield(); haskey(DistributedNext.PGRP.refs, chk_rrid)), id_other, rrid))
 
-# Distributed GC tests for RemoteChannels
+# DistributedNext GC tests for RemoteChannels
 function test_remoteref_dgc(id)
     rr = RemoteChannel(id)
     put!(rr, :OK)
     rrid = remoteref_id(rr)
 
     # remote value should be deleted after finalizing the ref
-    @test remotecall_fetch(k->(yield();haskey(Distributed.PGRP.refs, k)), id, rrid) == true
+    @test remotecall_fetch(k->(yield();haskey(DistributedNext.PGRP.refs, k)), id, rrid) == true
     @test fetch(rr) === :OK
-    @test remotecall_fetch(k->(yield();haskey(Distributed.PGRP.refs, k)), id, rrid) == true
+    @test remotecall_fetch(k->(yield();haskey(DistributedNext.PGRP.refs, k)), id, rrid) == true
     finalize(rr)
     yield(); # flush gc msgs
-    @test poll_while(() -> remotecall_fetch(k->(yield();haskey(Distributed.PGRP.refs, k)), id, rrid))
+    @test poll_while(() -> remotecall_fetch(k->(yield();haskey(DistributedNext.PGRP.refs, k)), id, rrid))
 end
 test_remoteref_dgc(id_me)
 test_remoteref_dgc(id_other)
@@ -295,16 +288,16 @@ let wid1 = workers()[1],
 
     put!(fstore, rr)
     if include_thread_unsafe_tests()
-        @test remotecall_fetch(k -> haskey(Distributed.PGRP.refs, k), wid1, rrid) == true
+        @test remotecall_fetch(k -> haskey(DistributedNext.PGRP.refs, k), wid1, rrid) == true
     end
     finalize(rr) # finalize locally
     yield() # flush gc msgs
     if include_thread_unsafe_tests()
-        @test remotecall_fetch(k -> haskey(Distributed.PGRP.refs, k), wid1, rrid) == true
+        @test remotecall_fetch(k -> haskey(DistributedNext.PGRP.refs, k), wid1, rrid) == true
     end
     remotecall_fetch(r -> (finalize(take!(r)); yield(); nothing), wid2, fstore) # finalize remotely
     sleep(0.5) # to ensure that wid2 messages have been executed on wid1
-    @test poll_while(() -> remotecall_fetch(k -> haskey(Distributed.PGRP.refs, k), wid1, rrid))
+    @test poll_while(() -> remotecall_fetch(k -> haskey(DistributedNext.PGRP.refs, k), wid1, rrid))
 end
 
 # Tests for issue #23109 - should not hang.
@@ -347,7 +340,7 @@ test_indexing(RemoteChannel())
 test_indexing(RemoteChannel(id_other))
 
 # Test ser/deser to non-ClusterSerializer objects.
-function test_regular_io_ser(ref::Distributed.AbstractRemoteRef)
+function test_regular_io_ser(ref::DistributedNext.AbstractRemoteRef)
     io = IOBuffer()
     serialize(io, ref)
     seekstart(io)
@@ -687,7 +680,7 @@ end
 n = 10
 as = [rand(4,4) for i in 1:n]
 bs = deepcopy(as)
-cs = collect(Distributed.pgenerate(x->(sleep(rand()*0.1); svd(x)), bs))
+cs = collect(DistributedNext.pgenerate(x->(sleep(rand()*0.1); svd(x)), bs))
 svdas = map(svd, as)
 for i in 1:n
     @test cs[i].U ≈ svdas[i].U
@@ -738,16 +731,16 @@ clear!(wp)
 @test length(wp.map_obj2ref) == 0
 
 # default_worker_pool! tests
-wp_default = Distributed.default_worker_pool()
+wp_default = DistributedNext.default_worker_pool()
 try
     local wp = CachingPool(workers())
-    Distributed.default_worker_pool!(wp)
+    DistributedNext.default_worker_pool!(wp)
     @test [1:100...] == pmap(x->x, wp, 1:100)
     @test !isempty(wp.map_obj2ref)
     clear!(wp)
     @test isempty(wp.map_obj2ref)
 finally
-    Distributed.default_worker_pool!(wp_default)
+    DistributedNext.default_worker_pool!(wp_default)
 end
 
 # The below block of tests are usually run only on local development systems, since:
@@ -771,8 +764,8 @@ if DoFullTest
     all_w = workers()
     # Test sending fake data to workers. The worker processes will print an
     # error message but should not terminate.
-    for w in Distributed.PGRP.workers
-        if isa(w, Distributed.Worker)
+    for w in DistributedNext.PGRP.workers
+        if isa(w, DistributedNext.Worker)
             local s = connect(w.config.host, w.config.port)
             write(s, randstring(32))
         end
@@ -981,7 +974,7 @@ end
 rc_unbuffered_other = RemoteChannel(()->Channel{Int}(0), id_other)
 close(rc_unbuffered_other)
 try; take!(rc_unbuffered_other); catch; end
-@test !remotecall_fetch(rc -> islocked(Distributed.lookup_ref(remoteref_id(rc)).synctake),
+@test !remotecall_fetch(rc -> islocked(DistributedNext.lookup_ref(remoteref_id(rc)).synctake),
                         id_other, rc_unbuffered_other)
 
 # github PR #14456
@@ -1081,7 +1074,7 @@ end
 
 # Test calling @everywhere from a module not defined on the workers
 module LocalBar
-    using Distributed
+    using DistributedNext
     bar() = @everywhere new_bar()=myid()
 end
 LocalBar.bar()
@@ -1143,7 +1136,7 @@ function get_remote_num_threads(processes_added)
 end
 
 function test_blas_config(pid, expected)
-    for worker in Distributed.PGRP.workers
+    for worker in DistributedNext.PGRP.workers
         if worker.id == pid
             @test worker.config.enable_threaded_blas == expected
             return
@@ -1329,9 +1322,9 @@ global v4 = v3
 
 # Global references to Types and Modules should work if they are locally defined
 global v5 = Int
-global v6 = Distributed
+global v6 = DistributedNext
 @test remotecall_fetch(()->v5, id_other) === Int
-@test remotecall_fetch(()->v6, id_other) === Distributed
+@test remotecall_fetch(()->v6, id_other) === DistributedNext
 
 struct FooStructLocal end
 module FooModLocal end
@@ -1464,7 +1457,7 @@ wrapped_var_ser_tests()
 global ids_cleanup = fill(1., 6)
 global ids_func = ()->ids_cleanup
 
-clust_ser = (Distributed.worker_from_id(id_other)).w_serializer
+clust_ser = (DistributedNext.worker_from_id(id_other)).w_serializer
 @test remotecall_fetch(ids_func, id_other) == ids_cleanup
 
 # TODO Add test for cleanup from `clust_ser.glbs_in_tnobj`
@@ -1634,10 +1627,10 @@ function launch(manager::WorkerArgTester, params::Dict, launched::Array, c::Cond
     exename = params[:exename]
     exeflags = params[:exeflags]
 
-    cmd = `$exename $exeflags --bind-to $(Distributed.LPROC.bind_addr) $(manager.worker_opt)`
+    cmd = `$exename $exeflags --bind-to $(DistributedNext.LPROC.bind_addr) $(manager.worker_opt)`
     cmd = pipeline(detach(setenv(cmd, dir=dir)))
     io = open(cmd, "r+")
-    manager.write_cookie && Distributed.write_cookie(io)
+    manager.write_cookie && DistributedNext.write_cookie(io)
 
     wconfig = WorkerConfig()
     wconfig.process = io
@@ -1650,18 +1643,20 @@ manage(::WorkerArgTester, ::Integer, ::WorkerConfig, ::Symbol) = nothing
 
 nprocs()>1 && rmprocs(workers())
 
-npids = addprocs_with_testenv(WorkerArgTester(`--worker`, true))
-@test remotecall_fetch(myid, npids[1]) == npids[1]
-rmprocs(npids)
+## These tests are disabled because DistributedNext has no way of supporting the
+## --worker argument.
+# npids = addprocs_with_testenv(WorkerArgTester(`--worker`, true))
+# @test remotecall_fetch(myid, npids[1]) == npids[1]
+# rmprocs(npids)
 
-cluster_cookie("")  # An empty string is a valid cookie
-npids = addprocs_with_testenv(WorkerArgTester(`--worker=`, false))
-@test remotecall_fetch(myid, npids[1]) == npids[1]
-rmprocs(npids)
+# cluster_cookie("")  # An empty string is a valid cookie
+# npids = addprocs_with_testenv(WorkerArgTester(`--worker=`, false))
+# @test remotecall_fetch(myid, npids[1]) == npids[1]
+# rmprocs(npids)
 
-cluster_cookie("foobar") # custom cookie
-npids = addprocs_with_testenv(WorkerArgTester(`--worker=foobar`, false))
-@test remotecall_fetch(myid, npids[1]) == npids[1]
+# cluster_cookie("foobar") # custom cookie
+# npids = addprocs_with_testenv(WorkerArgTester(`--worker=foobar`, false))
+# @test remotecall_fetch(myid, npids[1]) == npids[1]
 
 # tests for start_worker options to retain stdio (issue #31035)
 struct RetainStdioTester <: ClusterManager
@@ -1674,8 +1669,8 @@ function launch(manager::RetainStdioTester, params::Dict, launched::Array, c::Co
     exename = params[:exename]
     exeflags = params[:exeflags]
 
-    jlcmd = "using Distributed; start_worker(\"\"; close_stdin=$(manager.close_stdin), stderr_to_stdout=$(manager.stderr_to_stdout));"
-    cmd = detach(setenv(`$exename $exeflags --bind-to $(Distributed.LPROC.bind_addr) -e $jlcmd`, dir=dir))
+    jlcmd = "using DistributedNext; start_worker(\"\"; close_stdin=$(manager.close_stdin), stderr_to_stdout=$(manager.stderr_to_stdout));"
+    cmd = detach(setenv(`$exename $exeflags --bind-to $(DistributedNext.LPROC.bind_addr) -e $jlcmd`, dir=dir))
     proc = open(cmd, "r+")
 
     wconfig = WorkerConfig()
@@ -1717,7 +1712,7 @@ function reuseport_tests()
         remotecall_fetch(p) do
             ports_lower = []        # ports of pids lower than myid()
             ports_higher = []       # ports of pids higher than myid()
-            for w in Distributed.PGRP.workers
+            for w in DistributedNext.PGRP.workers
                 w.id == myid() && continue
                 port = Sockets._sockname(w.r_stream, true)[2]
                 if (w.id == 1)
@@ -1768,38 +1763,38 @@ end
 
 # issue #28966
 let code = """
-    import Distributed
-    Distributed.addprocs(1)
-    Distributed.@everywhere f() = myid()
-    for w in Distributed.workers()
-        @assert Distributed.remotecall_fetch(f, w) == w
+    import DistributedNext
+    DistributedNext.addprocs(1)
+    DistributedNext.@everywhere f() = myid()
+    for w in DistributedNext.workers()
+        @assert DistributedNext.remotecall_fetch(f, w) == w
     end
     """
     @test success(`$(Base.julia_cmd()) --startup-file=no -e $code`)
 end
 
-# PR 32431: tests for internal Distributed.head_and_tail
-let (h, t) = Distributed.head_and_tail(1:10, 3)
+# PR 32431: tests for internal DistributedNext.head_and_tail
+let (h, t) = DistributedNext.head_and_tail(1:10, 3)
     @test h == 1:3
     @test collect(t) == 4:10
 end
-let (h, t) = Distributed.head_and_tail(1:10, 0)
+let (h, t) = DistributedNext.head_and_tail(1:10, 0)
     @test h == []
     @test collect(t) == 1:10
 end
-let (h, t) = Distributed.head_and_tail(1:3, 5)
+let (h, t) = DistributedNext.head_and_tail(1:3, 5)
     @test h == 1:3
     @test collect(t) == []
 end
-let (h, t) = Distributed.head_and_tail(1:3, 3)
+let (h, t) = DistributedNext.head_and_tail(1:3, 3)
     @test h == 1:3
     @test collect(t) == []
 end
-let (h, t) = Distributed.head_and_tail(Int[], 3)
+let (h, t) = DistributedNext.head_and_tail(Int[], 3)
     @test h == []
     @test collect(t) == []
 end
-let (h, t) = Distributed.head_and_tail(Int[], 0)
+let (h, t) = DistributedNext.head_and_tail(Int[], 0)
     @test h == []
     @test collect(t) == []
 end
@@ -1823,9 +1818,10 @@ end
 
 # Propagation of package environments for local workers (#28781)
 let julia = `$(Base.julia_cmd()) --startup-file=no`; mktempdir() do tmp
+    pkg_project = joinpath(Base.pkgdir(DistributedNext), "Project.toml")
     project = mkdir(joinpath(tmp, "project"))
     depots = [mkdir(joinpath(tmp, "depot1")), mkdir(joinpath(tmp, "depot2"))]
-    load_path = [mkdir(joinpath(tmp, "load_path")), "@stdlib", "@"]
+    load_path = [mkdir(joinpath(tmp, "load_path")), "@stdlib", "@", pkg_project]
     pathsep = Sys.iswindows() ? ";" : ":"
     env = Dict(
         "JULIA_DEPOT_PATH" => join(depots, pathsep),
@@ -1834,14 +1830,22 @@ let julia = `$(Base.julia_cmd()) --startup-file=no`; mktempdir() do tmp
         # CI system where `TMPDIR` is special.
         "TMPDIR" => dirname(tmp),
     )
-    setupcode = """
-    using Distributed, Test
+
+    funcscode = """
+    using Test
+
     @everywhere begin
         depot_path() = DEPOT_PATH
         load_path() = LOAD_PATH
         active_project() = Base.ACTIVE_PROJECT[]
     end
     """
+
+    setupcode = """
+    using DistributedNext
+    addprocs(1)
+    """ * funcscode
+
     testcode = setupcode * """
     for w in workers()
         @test remotecall_fetch(depot_path, w)          == DEPOT_PATH
@@ -1851,14 +1855,17 @@ let julia = `$(Base.julia_cmd()) --startup-file=no`; mktempdir() do tmp
         @test remotecall_fetch(Base.active_project, w) == Base.active_project()
     end
     """
-    # No active project
-    extracode = """
-    for w in workers()
-        @test remotecall_fetch(active_project, w) === Base.ACTIVE_PROJECT[] === nothing
-    end
-    """
-    cmd = setenv(`$(julia) -p1 -e $(testcode * extracode)`, env)
-    @test success(cmd)
+
+    # No active project. This test is disabled because it won't work with
+    # DistributedNext since the package isn't a stdlib.
+    # extracode = """
+    # for w in workers()
+    #     @test remotecall_fetch(active_project, w) === Base.ACTIVE_PROJECT[] === nothing
+    # end
+    # """
+    # cmd = setenv(`$(julia) -e $(testcode * extracode)`, env)
+    # @test success(cmd)
+
     # --project
     extracode = """
     for w in workers()
@@ -1866,16 +1873,16 @@ let julia = `$(Base.julia_cmd()) --startup-file=no`; mktempdir() do tmp
               $(repr(project))
     end
     """
-    cmd = setenv(`$(julia) --project=$(project) -p1 -e $(testcode * extracode)`, env)
+    cmd = setenv(`$(julia) --project=$(project) -e $(testcode * extracode)`, env)
     @test success(cmd)
     # JULIA_PROJECT
-    cmd = setenv(`$(julia) -p1 -e $(testcode * extracode)`,
+    cmd = setenv(`$(julia) -e $(testcode * extracode)`,
                  (env["JULIA_PROJECT"] = project; env))
     @test success(cmd)
     # Pkg.activate(...)
     activateish = """
     Base.ACTIVE_PROJECT[] = $(repr(project))
-    using Distributed
+    using DistributedNext
     addprocs(1)
     """
     cmd = setenv(`$(julia) -e $(activateish * testcode * extracode)`, env)
@@ -1888,7 +1895,7 @@ let julia = `$(Base.julia_cmd()) --startup-file=no`; mktempdir() do tmp
     append!(empty!(LOAD_PATH), l)
     """
     addcode = """
-    using Distributed
+    using DistributedNext
     addprocs(1) # after shuffling
     """
     extracode = """
@@ -1899,31 +1906,39 @@ let julia = `$(Base.julia_cmd()) --startup-file=no`; mktempdir() do tmp
     """
     cmd = setenv(`$(julia) -e $(shufflecode * addcode * testcode * extracode)`, env)
     @test success(cmd)
-    # Mismatch when shuffling after proc addition
-    failcode = shufflecode * setupcode * """
+    # Mismatch when shuffling after proc addition. Note that the use of
+    # `addcode` mimics the behaviour of -p1 as the first worker is started
+    # before `shufflecode` executes.
+    failcode = addcode * shufflecode * funcscode * """
+    @show workers()
     for w in workers()
         @test remotecall_fetch(load_path, w) == reverse(LOAD_PATH) == $(repr(load_path))
         @test remotecall_fetch(depot_path, w) == reverse(DEPOT_PATH) == $(repr(depots))
     end
     """
-    cmd = setenv(`$(julia) -p1 -e $(failcode)`, env)
+    cmd = setenv(`$(julia) -e $(failcode)`, env)
     @test success(cmd)
+
+    # Hideous hack to double escape path separators on Windows so that it gets
+    # interpolated into the string (and then Cmd) correctly.
+    escaped_pkg_project = Sys.iswindows() ? replace(pkg_project, "\\" => "\\\\") : pkg_project
+
     # Passing env or exeflags to addprocs(...) to override defaults
     envcode = """
-    using Distributed
+    using DistributedNext
     project = mktempdir()
     env = Dict(
-        "JULIA_LOAD_PATH" => string(LOAD_PATH[1], $(repr(pathsep)), "@stdlib"),
+        "JULIA_LOAD_PATH" => string(LOAD_PATH[1], $(repr(pathsep)), "@stdlib", $(repr(pathsep)), "$(escaped_pkg_project)"),
         "JULIA_DEPOT_PATH" => DEPOT_PATH[1],
         "TMPDIR" => ENV["TMPDIR"],
     )
     addprocs(1; env = env, exeflags = `--project=\$(project)`)
     env["JULIA_PROJECT"] = project
     addprocs(1; env = env)
-    """ * setupcode * """
+    """ * funcscode * """
     for w in workers()
         @test remotecall_fetch(depot_path, w)          == [DEPOT_PATH[1]]
-        @test remotecall_fetch(load_path, w)           == [LOAD_PATH[1], "@stdlib"]
+        @test remotecall_fetch(load_path, w)           == [LOAD_PATH[1], "@stdlib", "$(escaped_pkg_project)"]
         @test remotecall_fetch(active_project, w)      == project
         @test remotecall_fetch(Base.active_project, w) == joinpath(project, "Project.toml")
     end

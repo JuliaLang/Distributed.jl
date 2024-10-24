@@ -3,7 +3,7 @@
 """
 Tools for distributed parallel processing.
 """
-module Distributed
+module DistributedNext
 
 # imports for extension
 import Base: getindex, wait, put!, take!, fetch, isready, push!, length,

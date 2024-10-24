@@ -1,9 +1,9 @@
 # This file is a part of Julia. License is MIT: https://julialang.org/license
 
 using Test
-using Distributed
+using DistributedNext
 using Sockets
-using Distributed: parse_machine, SSHManager, LocalManager
+using DistributedNext: parse_machine, SSHManager, LocalManager
 
 @test parse_machine("127.0.0.1") == ("127.0.0.1", nothing)
 @test parse_machine("127.0.0.1:80") == ("127.0.0.1", 80)
