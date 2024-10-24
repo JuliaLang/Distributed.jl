@@ -1,6 +1,6 @@
-name = "Distributed"
-uuid = "8ba89e20-285c-5b6f-9357-94700520ee1b"
-version = "1.11.0"
+name = "DistributedNext"
+uuid = "fab6aee4-877b-4bac-a744-3eca44acbb6f"
+version = "1"
 
 [deps]
 Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
