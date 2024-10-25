@@ -1,6 +1,6 @@
 name = "DistributedNext"
 uuid = "fab6aee4-877b-4bac-a744-3eca44acbb6f"
-version = "1"
+version = "1.0.0"
 
 [deps]
 Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
@@ -8,8 +8,9 @@ Serialization = "9e88b42a-f829-5b0c-bbe9-9e923198166b"
 Sockets = "6462fe0b-24de-5631-8697-dd941f90decc"
 
 [extras]
+LibSSH = "00483490-30f8-4353-8aba-35b82f51f4d0"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 
 [targets]
-test = ["LinearAlgebra", "Test"]
+test = ["LinearAlgebra", "Test", "LibSSH"]
