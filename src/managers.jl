@@ -78,6 +78,10 @@ addprocs([
 
 **Keyword arguments**:
 
+* `project`: the Julia project to activate on the remote node. This *must* have
+  `DistributedNext` installed to work. Defaults to the currently active project
+  on the local node.
+
 * `tunnel`: if `true` then SSH tunneling will be used to connect to the worker from the
   master process. Default is `false`.
 
@@ -171,7 +175,8 @@ default_addprocs_params(::SSHManager) =
               :env            => [],
               :tunnel         => false,
               :multiplex      => false,
-              :max_parallel   => 10))
+              :max_parallel   => 10,
+              :project        => Base.current_project()))
 
 function launch(manager::SSHManager, params::Dict, launched::Array, launch_ntfy::Condition)
     # Launch one worker on each unique host in parallel. Additional workers are launched later.
@@ -238,7 +243,10 @@ function launch_on_machine(manager::SSHManager, machine::AbstractString, cnt, pa
     tunnel = params[:tunnel]
     multiplex = params[:multiplex]
     cmdline_cookie = params[:cmdline_cookie]
+    project = params[:project]
     env = Dict{String,String}(params[:env])
+
+    exeflags = `--project=$project $exeflags`
 
     # machine could be of the format [user@]host[:port] bind_addr[:bind_port]
     # machine format string is split on whitespace
