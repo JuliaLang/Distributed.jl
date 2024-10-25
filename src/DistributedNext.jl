@@ -1,7 +1,8 @@
 # This file is a part of Julia. License is MIT: https://julialang.org/license
 
 """
-Tools for distributed parallel processing.
+Tools for distributed parallel processing. This is a soft fork of Distributed.jl
+for the purposes of testing new things before merging upstream. Here be dragons!
 """
 module DistributedNext
 

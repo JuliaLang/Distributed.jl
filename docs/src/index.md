@@ -1,53 +1,53 @@
 # [Distributed Computing](@id man-distributed)
 
 ```@docs
-Distributed
-Distributed.addprocs
-Distributed.nprocs
-Distributed.nworkers
-Distributed.procs()
-Distributed.procs(::Integer)
-Distributed.workers
-Distributed.rmprocs
-Distributed.interrupt
-Distributed.myid
-Distributed.pmap
-Distributed.RemoteException
-Distributed.ProcessExitedException
-Distributed.Future
-Distributed.RemoteChannel
-Distributed.fetch(::Distributed.Future)
-Distributed.fetch(::RemoteChannel)
-Distributed.remotecall(::Any, ::Integer, ::Any...)
-Distributed.remotecall_wait(::Any, ::Integer, ::Any...)
-Distributed.remotecall_fetch(::Any, ::Integer, ::Any...)
-Distributed.remote_do(::Any, ::Integer, ::Any...)
-Distributed.put!(::RemoteChannel, ::Any...)
-Distributed.put!(::Distributed.Future, ::Any)
-Distributed.take!(::RemoteChannel, ::Any...)
-Distributed.isready(::RemoteChannel, ::Any...)
-Distributed.isready(::Distributed.Future)
-Distributed.AbstractWorkerPool
-Distributed.WorkerPool
-Distributed.CachingPool
-Distributed.default_worker_pool
-Distributed.clear!
-Distributed.remote
-Distributed.remotecall(::Any, ::AbstractWorkerPool, ::Any...)
-Distributed.remotecall_wait(::Any, ::AbstractWorkerPool, ::Any...)
-Distributed.remotecall_fetch(::Any, ::AbstractWorkerPool, ::Any...)
-Distributed.remote_do(::Any, ::AbstractWorkerPool, ::Any...)
-Distributed.@spawn
-Distributed.@spawnat
-Distributed.@fetch
-Distributed.@fetchfrom
-Distributed.@distributed
-Distributed.@everywhere
-Distributed.remoteref_id
-Distributed.channel_from_id
-Distributed.worker_id_from_socket
-Distributed.cluster_cookie()
-Distributed.cluster_cookie(::Any)
+DistributedNext
+DistributedNext.addprocs
+DistributedNext.nprocs
+DistributedNext.nworkers
+DistributedNext.procs()
+DistributedNext.procs(::Integer)
+DistributedNext.workers
+DistributedNext.rmprocs
+DistributedNext.interrupt
+DistributedNext.myid
+DistributedNext.pmap
+DistributedNext.RemoteException
+DistributedNext.ProcessExitedException
+DistributedNext.Future
+DistributedNext.RemoteChannel
+DistributedNext.fetch(::DistributedNext.Future)
+DistributedNext.fetch(::RemoteChannel)
+DistributedNext.remotecall(::Any, ::Integer, ::Any...)
+DistributedNext.remotecall_wait(::Any, ::Integer, ::Any...)
+DistributedNext.remotecall_fetch(::Any, ::Integer, ::Any...)
+DistributedNext.remote_do(::Any, ::Integer, ::Any...)
+DistributedNext.put!(::RemoteChannel, ::Any...)
+DistributedNext.put!(::DistributedNext.Future, ::Any)
+DistributedNext.take!(::RemoteChannel, ::Any...)
+DistributedNext.isready(::RemoteChannel, ::Any...)
+DistributedNext.isready(::DistributedNext.Future)
+DistributedNext.AbstractWorkerPool
+DistributedNext.WorkerPool
+DistributedNext.CachingPool
+DistributedNext.default_worker_pool
+DistributedNext.clear!
+DistributedNext.remote
+DistributedNext.remotecall(::Any, ::AbstractWorkerPool, ::Any...)
+DistributedNext.remotecall_wait(::Any, ::AbstractWorkerPool, ::Any...)
+DistributedNext.remotecall_fetch(::Any, ::AbstractWorkerPool, ::Any...)
+DistributedNext.remote_do(::Any, ::AbstractWorkerPool, ::Any...)
+DistributedNext.@spawn
+DistributedNext.@spawnat
+DistributedNext.@fetch
+DistributedNext.@fetchfrom
+DistributedNext.@distributed
+DistributedNext.@everywhere
+DistributedNext.remoteref_id
+DistributedNext.channel_from_id
+DistributedNext.worker_id_from_socket
+DistributedNext.cluster_cookie()
+DistributedNext.cluster_cookie(::Any)
 ```
 
 ## Cluster Manager Interface
@@ -58,14 +58,14 @@ same host, and `SSHManager`, for launching on remote hosts via `ssh`. TCP/IP soc
 and transport messages between processes. It is possible for Cluster Managers to provide a different transport.
 
 ```@docs
-Distributed.ClusterManager
-Distributed.WorkerConfig
-Distributed.launch
-Distributed.manage
-Distributed.kill(::ClusterManager, ::Int, ::WorkerConfig)
-Distributed.connect(::ClusterManager, ::Int, ::WorkerConfig)
-Distributed.init_worker
-Distributed.start_worker
-Distributed.process_messages
-Distributed.default_addprocs_params
+DistributedNext.ClusterManager
+DistributedNext.WorkerConfig
+DistributedNext.launch
+DistributedNext.manage
+DistributedNext.kill(::ClusterManager, ::Int, ::WorkerConfig)
+DistributedNext.connect(::ClusterManager, ::Int, ::WorkerConfig)
+DistributedNext.init_worker
+DistributedNext.start_worker
+DistributedNext.process_messages
+DistributedNext.default_addprocs_params
 ```

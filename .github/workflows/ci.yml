@@ -14,6 +14,7 @@ concurrency:
   # Cancel intermediate builds: only pull request builds
   group: ${{ github.workflow }}-${{ github.ref }}-${{ github.ref != 'refs/heads/main' || startsWith(github.ref, 'refs/heads/release-') || github.run_number }}
   cancel-in-progress: ${{ startsWith(github.ref, 'refs/pull/') }}
+
 jobs:
   test:
     name: Julia ${{ matrix.version }} - ${{ matrix.os }} - ${{ matrix.arch }} - ${{ github.event_name }}
@@ -23,6 +24,7 @@ jobs:
       matrix:
         version:
           - 'nightly'
+          - '1'
         os:
           - ubuntu-latest
           - macOS-latest
@@ -58,18 +60,17 @@ jobs:
         with:
           file: lcov.info
           token: ${{ secrets.CODECOV_TOKEN }}
+
   docs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: julia-actions/setup-julia@latest
         with:
-          # version: '1.6'
-          version: 'nightly'
-      - name: Generate docs
-        run: |
-          julia --color=yes -e 'write("Project.toml", replace(read("Project.toml", String), r"uuid = .*?\n" =>"uuid = \"47e2e46d-f89d-539d-b4ee-838fcccc9c8e\"\n"));'
-          julia --project --color=yes -e 'using Pkg; Pkg.activate("docs"); Pkg.instantiate(); Pkg.develop(PackageSpec(path = pwd()))'
-          julia --project=docs --color=yes docs/make.jl pdf
+          version: '1'
+      - name: Install dependencies
+        run: julia --project=docs/ -e 'using Pkg; Pkg.instantiate()'
+      - name: Build and deploy
         env:
-          DOCUMENTER_KEY: ${{ secrets.DOCUMENTER_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: julia --project=docs/ docs/make.jl
