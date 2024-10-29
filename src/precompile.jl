@@ -1,6 +1,6 @@
-precompile(Tuple{typeof(Distributed.remotecall),Function,Int,Module,Vararg{Any, 100}})
-precompile(Tuple{typeof(Distributed.procs)})
-precompile(Tuple{typeof(Distributed.finalize_ref), Distributed.Future})
+precompile(Tuple{typeof(DistributedNext.remotecall),Function,Int,Module,Vararg{Any, 100}})
+precompile(Tuple{typeof(DistributedNext.procs)})
+precompile(Tuple{typeof(DistributedNext.finalize_ref), DistributedNext.Future})
 # This is disabled because it doesn't give much benefit
 # and the code in Distributed is poorly typed causing many invalidations
 # TODO: Maybe reenable now that Distributed is not in sysimage.
