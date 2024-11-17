@@ -111,7 +111,9 @@ addprocs([
   version is used on all remote machines because serialization and code distribution might
   fail otherwise.
 
-* `exeflags`: additional flags passed to the worker processes.
+* `exeflags`: additional flags passed to the worker processes. It can either be a `Cmd`, a `String`
+  holding one flag, or a collection of strings, with one element per flag.
+  E.g. `\`--threads=auto project=.\``, `"--compile-trace=stderr"` or `["--threads=auto", "--compile=all"]`. 
 
 * `topology`: Specifies how the workers connect to each other. Sending a message between
   unconnected workers results in an error.
