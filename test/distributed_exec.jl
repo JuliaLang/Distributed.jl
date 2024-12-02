@@ -497,6 +497,18 @@ let ch = RemoteChannel(() -> Channel(1))
     @test 10 == test_iteration_collect(ch)
 end
 
+# Test isempty(::RemoteChannel). This should not modify the underlying
+# AbstractChannel, which Base's default implementation will do.
+let
+    chan = Channel(1)
+    push!(chan, 1)
+    remotechan = RemoteChannel(() -> chan)
+
+    @test !isempty(remotechan)
+    # Calling `isempty(remotechan)` shouldn't have modified `chan`
+    @test !isempty(chan)
+end
+
 # make sure exceptions propagate when waiting on Tasks
 @test_throws CompositeException (@sync (@async error("oops")))
 try
