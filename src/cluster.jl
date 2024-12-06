@@ -683,11 +683,9 @@ function create_worker(manager, wconfig)
     send_msg_now(w, MsgHeader(RRID(0,0), ntfy_oid), join_message)
 
     @async manage(w.manager, w.id, w.config, :register)
+
     # wait for rr_ntfy_join with timeout
-    timedout = false
-    @async (sleep($timeout); timedout = true; put!(rr_ntfy_join, 1))
-    wait(rr_ntfy_join)
-    if timedout
+    if timedwait(() -> isready(rr_ntfy_join), timeout) === :timed_out
         error("worker did not connect within $timeout seconds")
     end
     lock(client_refs) do
