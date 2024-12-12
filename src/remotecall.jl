@@ -205,7 +205,7 @@ or to use a local [`Channel`](@ref) as a proxy:
 ```julia
 p = 1
 f = Future(p)
-errormonitor(@async put!(f, remotecall_fetch(long_computation, p)))
+errormonitor(Threads.@spawn put!(f, remotecall_fetch(long_computation, p)))
 isready(f)  # will not block
 ```
 """
