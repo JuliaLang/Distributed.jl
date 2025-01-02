@@ -194,16 +194,10 @@ function wait_for_conn(w)
         timeout =  worker_timeout() - (time() - w.ct_time)
         timeout <= 0 && error("peer $(w.id) has not connected to $(myid())")
 
-        T = Threads.@spawn Threads.threadpool() begin
-            sleep($timeout)
-            lock(w.c_state) do
-                notify(w.c_state; all=true)
-            end
-        end
-        errormonitor(T)
-        lock(w.c_state) do
-            wait(w.c_state)
-            w.state === W_CREATED && error("peer $(w.id) didn't connect to $(myid()) within $timeout seconds")
+        if timedwait(() -> (@atomic w.state) === W_CONNECTED, timeout) === :timed_out
+            # Notify any waiters on the state and throw
+            @lock w.c_state notify(w.c_state)
+            error("peer $(w.id) didn't connect to $(myid()) within $timeout seconds")
         end
     end
     nothing
