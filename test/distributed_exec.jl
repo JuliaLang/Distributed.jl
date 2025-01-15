@@ -295,7 +295,9 @@ let wid1 = workers()[1],
 
     put!(fstore, rr)
     if include_thread_unsafe_tests()
-        @test remotecall_fetch(k -> haskey(Distributed.PGRP.refs, k), wid1, rrid) == true
+        # timedwait() is necessary because wid1 is asynchronously informed of
+        # the existence of rr/rrid through the call to `put!(fstore, rr)`.
+        @test timedwait(() -> remotecall_fetch(k -> haskey(Distributed.PGRP.refs, k), wid1, rrid), 10) === :ok
     end
     finalize(rr) # finalize locally
     yield() # flush gc msgs
