@@ -160,12 +160,12 @@ function _getenv_include_thread_unsafe()
 end
 const _env_include_thread_unsafe = _getenv_include_thread_unsafe()
 function include_thread_unsafe_tests()
-    if Threads.maxthreadid() > 1
+    if Threads.threadpoolsize(:default) > 1
         if _env_include_thread_unsafe
             return true
         end
-        msg = "Skipping a thread-unsafe test because `Threads.maxthreadid() > 1`"
-        @warn msg Threads.maxthreadid()
+        msg = "Skipping a thread-unsafe test because `Threads.threadpoolsize(:default) > 1`"
+        @warn msg Threads.threadpoolsize(:default)
         Test.@test_broken false
         return false
     end
