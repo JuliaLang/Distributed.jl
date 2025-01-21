@@ -751,7 +751,6 @@ function redirect_output_from_additional_worker(pid, port)
 end
 
 function check_master_connect()
-    timeout = worker_timeout() * 1e9
     # If we do not have at least process 1 connect to us within timeout
     # we log an error and exit, unless we're running on valgrind
     if ccall(:jl_running_on_valgrind,Cint,()) != 0
@@ -760,13 +759,9 @@ function check_master_connect()
 
     errormonitor(
         Threads.@spawn begin
-            start = time_ns()
-            while !haskey(map_pid_wrkr, 1) && (time_ns() - start) < timeout
-                sleep(1.0)
-            end
-
-            if !haskey(map_pid_wrkr, 1)
-                print(stderr, "Master process (id 1) could not connect within $(timeout/1e9) seconds.\nexiting.\n")
+            timeout = worker_timeout()
+            if timedwait(() -> !haskey(map_pid_wrkr, 1), timeout) === :timed_out
+                print(stderr, "Master process (id 1) could not connect within $(timeout) seconds.\nexiting.\n")
                 exit(1)
             end
         end
