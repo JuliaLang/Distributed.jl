@@ -322,7 +322,7 @@ function process_worker(rr)
     msg = (remoteref_id(rr), myid())
 
     # Needs to acquire a lock on the del_msg queue
-    T = Threads.@spawn begin
+    T = Threads.@spawn Threads.threadpool() begin
         publish_del_msg!($w, $msg)
     end
     Base.errormonitor(T)
