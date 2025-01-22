@@ -490,13 +490,14 @@ function addprocs_locked(manager::ClusterManager; kwargs...)
     # call manager's `launch` is a separate task. This allows the master
     # process initiate the connection setup process as and when workers come
     # online
-    t_launch = Threads.@spawn Threads.threadpool() launch(manager, params, launched, launch_ntfy)
+    # NOTE: Must be `@async`. See FIXME above
+    t_launch = @async launch(manager, params, launched, launch_ntfy)
 
     @sync begin
         while true
             if isempty(launched)
                 istaskdone(t_launch) && break
-                Threads.@spawn Threads.threadpool() begin
+                @async begin # NOTE: Must be `@async`. See FIXME above
                     sleep(1)
                     notify(launch_ntfy)
                 end
@@ -506,7 +507,8 @@ function addprocs_locked(manager::ClusterManager; kwargs...)
             if !isempty(launched)
                 wconfig = popfirst!(launched)
                 let wconfig=wconfig
-                    Threads.@spawn Threads.threadpool() setup_launched_worker(manager, wconfig, launched_q)
+                    # NOTE: Must be `@async`. See FIXME above
+                    @async setup_launched_worker(manager, wconfig, launched_q)
                 end
             end
         end
