@@ -194,7 +194,7 @@ function wait_for_conn(w)
         timeout =  worker_timeout() - (time() - w.ct_time)
         timeout <= 0 && error("peer $(w.id) has not connected to $(myid())")
 
-        if timedwait(() -> (@atomic w.state) === WorkerState_connected, timeout) === :timed_out
+        if timedwait(() -> (@atomic w.state) === W_CONNECTED, timeout) === :timed_out
             # Notify any waiters on the state and throw
             @lock w.c_state notify(w.c_state)
             error("peer $(w.id) didn't connect to $(myid()) within $timeout seconds")
