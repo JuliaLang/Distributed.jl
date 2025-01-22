@@ -99,10 +99,10 @@ mutable struct Worker
     del_msgs::Array{Any,1} # XXX: Could del_msgs and add_msgs be Channels?
     add_msgs::Array{Any,1}
     @atomic gcflag::Bool
-    state::WorkerState
-    c_state::Condition      # wait for state changes
-    ct_time::Float64        # creation time
-    conn_func::Any          # used to setup connections lazily
+    @atomic state::WorkerState
+    c_state::Threads.Condition # wait for state changes, lock for state
+    ct_time::Float64           # creation time
+    conn_func::Any             # used to setup connections lazily
 
     r_stream::IO
     w_stream::IO
@@ -134,7 +134,7 @@ mutable struct Worker
         if haskey(map_pid_wrkr, id)
             return map_pid_wrkr[id]
         end
-        w=new(id, Threads.ReentrantLock(), [], [], false, W_CREATED, Condition(), time(), conn_func)
+        w=new(id, Threads.ReentrantLock(), [], [], false, W_CREATED, Threads.Condition(), time(), conn_func)
         w.initialized = Event()
         register_worker(w)
         w
@@ -144,8 +144,10 @@ mutable struct Worker
 end
 
 function set_worker_state(w, state)
-    w.state = state
-    notify(w.c_state; all=true)
+    lock(w.c_state) do
+        @atomic w.state = state
+        notify(w.c_state; all=true)
+    end
 end
 
 function check_worker_state(w::Worker)
@@ -161,15 +163,16 @@ function check_worker_state(w::Worker)
         else
             w.ct_time = time()
             if myid() > w.id
-                t = @async exec_conn_func(w)
+                t = Threads.@spawn Threads.threadpool() exec_conn_func(w)
             else
                 # route request via node 1
-                t = @async remotecall_fetch((p,to_id) -> remotecall_fetch(exec_conn_func, p, to_id), 1, w.id, myid())
+                t = Threads.@spawn Threads.threadpool() remotecall_fetch((p,to_id) -> remotecall_fetch(exec_conn_func, p, to_id), 1, w.id, myid())
             end
             errormonitor(t)
             wait_for_conn(w)
         end
     end
+    return nothing
 end
 
 exec_conn_func(id::Int) = exec_conn_func(worker_from_id(id)::Worker)
@@ -191,9 +194,17 @@ function wait_for_conn(w)
         timeout =  worker_timeout() - (time() - w.ct_time)
         timeout <= 0 && error("peer $(w.id) has not connected to $(myid())")
 
-        @async (sleep(timeout); notify(w.c_state; all=true))
-        wait(w.c_state)
-        w.state === W_CREATED && error("peer $(w.id) didn't connect to $(myid()) within $timeout seconds")
+        T = Threads.@spawn Threads.threadpool() begin
+            sleep($timeout)
+            lock(w.c_state) do
+                notify(w.c_state; all=true)
+            end
+        end
+        errormonitor(T)
+        lock(w.c_state) do
+            wait(w.c_state)
+            w.state === W_CREATED && error("peer $(w.id) didn't connect to $(myid()) within $timeout seconds")
+        end
     end
     nothing
 end
@@ -247,7 +258,7 @@ function start_worker(out::IO, cookie::AbstractString=readline(stdin); close_std
     else
         sock = listen(interface, LPROC.bind_port)
     end
-    errormonitor(@async while isopen(sock)
+    errormonitor(Threads.@spawn while isopen(sock)
         client = accept(sock)
         process_messages(client, client, true)
     end)
@@ -279,7 +290,7 @@ end
 
 
 function redirect_worker_output(ident, stream)
-    t = @async while !eof(stream)
+    t = Threads.@spawn while !eof(stream)
         line = readline(stream)
         if startswith(line, "      From worker ")
             # stdout's of "additional" workers started from an initial worker on a host are not available
@@ -318,7 +329,7 @@ function read_worker_host_port(io::IO)
     leader = String[]
     try
         while ntries > 0
-            readtask = @async readline(io)
+            readtask = Threads.@spawn Threads.threadpool() readline(io)
             yield()
             while !istaskdone(readtask) && ((time_ns() - t0) < timeout)
                 sleep(0.05)
@@ -419,7 +430,7 @@ if launching workers programmatically, execute `addprocs` in its own task.
 
 ```julia
 # On busy clusters, call `addprocs` asynchronously
-t = @async addprocs(...)
+t = Threads.@spawn addprocs(...)
 ```
 
 ```julia
@@ -485,20 +496,23 @@ function addprocs_locked(manager::ClusterManager; kwargs...)
     # call manager's `launch` is a separate task. This allows the master
     # process initiate the connection setup process as and when workers come
     # online
-    t_launch = @async launch(manager, params, launched, launch_ntfy)
+    t_launch = Threads.@spawn Threads.threadpool() launch(manager, params, launched, launch_ntfy)
 
     @sync begin
         while true
             if isempty(launched)
                 istaskdone(t_launch) && break
-                @async (sleep(1); notify(launch_ntfy))
+                Threads.@spawn Threads.threadpool() begin
+                    sleep(1)
+                    notify(launch_ntfy)
+                end
                 wait(launch_ntfy)
             end
 
             if !isempty(launched)
                 wconfig = popfirst!(launched)
                 let wconfig=wconfig
-                    @async setup_launched_worker(manager, wconfig, launched_q)
+                    Threads.@spawn Threads.threadpool() setup_launched_worker(manager, wconfig, launched_q)
                 end
             end
         end
@@ -578,7 +592,7 @@ function launch_n_additional_processes(manager, frompid, fromconfig, cnt, launch
             wconfig.port = port
 
             let wconfig=wconfig
-                @async begin
+                Threads.@spawn Threads.threadpool() begin
                     pid = create_worker(manager, wconfig)
                     remote_do(redirect_output_from_additional_worker, frompid, pid, port)
                     push!(launched_q, pid)
@@ -645,7 +659,12 @@ function create_worker(manager, wconfig)
         # require the value of config.connect_at which is set only upon connection completion
         for jw in PGRP.workers
             if (jw.id != 1) && (jw.id < w.id)
-                (jw.state === W_CREATED) && wait(jw.c_state)
+                # wait for wl to join
+                if jw.state === W_CREATED
+                    lock(jw.c_state) do
+                        wait(jw.c_state)
+                    end
+                end
                 push!(join_list, jw)
             end
         end
@@ -668,7 +687,12 @@ function create_worker(manager, wconfig)
         end
 
         for wl in wlist
-            (wl.state === W_CREATED) && wait(wl.c_state)
+            lock(wl.c_state) do
+                if wl.state === W_CREATED
+                    # wait for wl to join
+                    wait(wl.c_state)
+                end
+            end
             push!(join_list, wl)
         end
     end
@@ -727,23 +751,21 @@ function redirect_output_from_additional_worker(pid, port)
 end
 
 function check_master_connect()
-    timeout = worker_timeout() * 1e9
     # If we do not have at least process 1 connect to us within timeout
     # we log an error and exit, unless we're running on valgrind
     if ccall(:jl_running_on_valgrind,Cint,()) != 0
         return
     end
-    @async begin
-        start = time_ns()
-        while !haskey(map_pid_wrkr, 1) && (time_ns() - start) < timeout
-            sleep(1.0)
-        end
 
-        if !haskey(map_pid_wrkr, 1)
-            print(stderr, "Master process (id 1) could not connect within $(timeout/1e9) seconds.\nexiting.\n")
-            exit(1)
+    errormonitor(
+        Threads.@spawn begin
+            timeout = worker_timeout()
+            if timedwait(() -> !haskey(map_pid_wrkr, 1), timeout) === :timed_out
+                print(stderr, "Master process (id 1) could not connect within $(timeout) seconds.\nexiting.\n")
+                exit(1)
+            end
         end
-    end
+    )
 end
 
 
@@ -1028,13 +1050,13 @@ function rmprocs(pids...; waitfor=typemax(Int))
 
     pids = vcat(pids...)
     if waitfor == 0
-        t = @async _rmprocs(pids, typemax(Int))
+        t = Threads.@spawn Threads.threadpool() _rmprocs(pids, typemax(Int))
         yield()
         return t
     else
         _rmprocs(pids, waitfor)
         # return a dummy task object that user code can wait on.
-        return @async nothing
+        return Threads.@spawn Threads.threadpool() nothing
     end
 end
 
@@ -1217,7 +1239,7 @@ function interrupt(pids::AbstractVector=workers())
     @assert myid() == 1
     @sync begin
         for pid in pids
-            @async interrupt(pid)
+            Threads.@spawn Threads.threadpool() interrupt(pid)
         end
     end
 end
@@ -1288,18 +1310,16 @@ end
 
 using Random: randstring
 
-let inited = false
-    # do initialization that's only needed when there is more than 1 processor
-    global function init_multi()
-        if !inited
-            inited = true
-            push!(Base.package_callbacks, _require_callback)
-            atexit(terminate_all_workers)
-            init_bind_addr()
-            cluster_cookie(randstring(HDR_COOKIE_LEN))
-        end
-        return nothing
+# do initialization that's only needed when there is more than 1 processor
+const inited = Threads.Atomic{Bool}(false)
+function init_multi()
+    if !Threads.atomic_cas!(inited, false, true)
+        push!(Base.package_callbacks, _require_callback)
+        atexit(terminate_all_workers)
+        init_bind_addr()
+        cluster_cookie(randstring(HDR_COOKIE_LEN))
     end
+    return nothing
 end
 
 function init_parallel()

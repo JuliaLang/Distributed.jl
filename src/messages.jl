@@ -200,7 +200,7 @@ function flush_gc_msgs()
         end
     catch e
         bt = catch_backtrace()
-        @async showerror(stderr, e, bt)
+        Threads.@spawn showerror(stderr, e, bt)
     end
 end
 
