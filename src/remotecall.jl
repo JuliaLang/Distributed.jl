@@ -205,7 +205,7 @@ or to use a local [`Channel`](@ref) as a proxy:
 ```julia
 p = 1
 f = Future(p)
-errormonitor(Threads.@spawn put!(f, remotecall_fetch(long_computation, p)))
+errormonitor(@async put!(f, remotecall_fetch(long_computation, p)))
 isready(f)  # will not block
 ```
 """
@@ -322,7 +322,7 @@ function process_worker(rr)
     msg = (remoteref_id(rr), myid())
 
     # Needs to acquire a lock on the del_msg queue
-    T = Threads.@spawn Threads.threadpool() begin
+    T = Threads.@spawn begin
         publish_del_msg!($w, $msg)
     end
     Base.errormonitor(T)
