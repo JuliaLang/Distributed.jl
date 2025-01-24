@@ -151,27 +151,6 @@ function poll_while(f::Function; timeout_seconds::Integer = 120)
     return true
 end
 
-function _getenv_include_thread_unsafe()
-    environment_variable_name = "JULIA_TEST_INCLUDE_THREAD_UNSAFE"
-    default_value = "false"
-    environment_variable_value = strip(get(ENV, environment_variable_name, default_value))
-    b = parse(Bool, environment_variable_value)::Bool
-    return b
-end
-const _env_include_thread_unsafe = _getenv_include_thread_unsafe()
-function include_thread_unsafe_tests()
-    if Threads.maxthreadid() > 1
-        if _env_include_thread_unsafe
-            return true
-        end
-        msg = "Skipping a thread-unsafe test because `Threads.maxthreadid() > 1`"
-        @warn msg Threads.maxthreadid()
-        Test.@test_broken false
-        return false
-    end
-    return true
-end
-
 # Distributed GC tests for Futures
 function test_futures_dgc(id)
     f = remotecall(myid, id)
@@ -294,16 +273,16 @@ let wid1 = workers()[1],
     fstore = RemoteChannel(wid2)
 
     put!(fstore, rr)
-    if include_thread_unsafe_tests()
-        # timedwait() is necessary because wid1 is asynchronously informed of
-        # the existence of rr/rrid through the call to `put!(fstore, rr)`.
-        @test timedwait(() -> remotecall_fetch(k -> haskey(Distributed.PGRP.refs, k), wid1, rrid), 10) === :ok
-    end
+
+    # timedwait() is necessary because wid1 is asynchronously informed of
+    # the existence of rr/rrid through the call to `put!(fstore, rr)`.
+    @test timedwait(() -> remotecall_fetch(k -> haskey(Distributed.PGRP.refs, k), wid1, rrid), 10) === :ok
+
     finalize(rr) # finalize locally
     yield() # flush gc msgs
-    if include_thread_unsafe_tests()
-        @test remotecall_fetch(k -> haskey(Distributed.PGRP.refs, k), wid1, rrid) == true
-    end
+
+    @test timedwait(() -> remotecall_fetch(k -> haskey(Distributed.PGRP.refs, k), wid1, rrid), 10) === :ok
+
     remotecall_fetch(r -> (finalize(take!(r)); yield(); nothing), wid2, fstore) # finalize remotely
     sleep(0.5) # to ensure that wid2 messages have been executed on wid1
     @test poll_while(() -> remotecall_fetch(k -> haskey(Distributed.PGRP.refs, k), wid1, rrid))
