@@ -1734,18 +1734,17 @@ function reuseport_tests()
     end
 
     # Ensure that the code has indeed been successfully executed everywhere
-    @test all(in(results), procs())
+    return all(in(results), procs())
 end
 
 # Test that the client port is reused. SO_REUSEPORT may not be supported on
 # all UNIX platforms, Linux kernels prior to 3.9 and older versions of OSX
 @assert nprocs() == 1
 addprocs_with_testenv(4; lazy=false)
-if ccall(:jl_has_so_reuseport, Int32, ()) == 1
-    reuseport_tests()
-else
-    @info "SO_REUSEPORT is unsupported, skipping reuseport tests"
-end
+
+skip_reuseexport = ccall(:jl_has_so_reuseport, Int32, ()) != 1
+skip_reuseexport && @debug "SO_REUSEPORT support missing, reuseport_tests skipped"
+@test reuseport_tests() skip = skip_reuseexport
 
 # issue #27933
 a27933 = :_not_defined_27933
