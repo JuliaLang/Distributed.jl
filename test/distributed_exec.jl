@@ -1850,7 +1850,7 @@ let julia = `$(Base.julia_cmd()) --startup-file=no`; mktempdir() do tmp
     end
     """
     cmd = setenv(`$(julia) -p1 -e $(testcode * extracode)`, env)
-    @test success(cmd)
+    @test success(pipeline(cmd; stdout, stderr))
     # --project
     extracode = """
     for w in workers()
@@ -1859,11 +1859,11 @@ let julia = `$(Base.julia_cmd()) --startup-file=no`; mktempdir() do tmp
     end
     """
     cmd = setenv(`$(julia) --project=$(project) -p1 -e $(testcode * extracode)`, env)
-    @test success(cmd)
+    @test success(pipeline(cmd; stdout, stderr))
     # JULIA_PROJECT
     cmd = setenv(`$(julia) -p1 -e $(testcode * extracode)`,
                  (env["JULIA_PROJECT"] = project; env))
-    @test success(cmd)
+    @test success(pipeline(cmd; stdout, stderr))
     # Pkg.activate(...)
     activateish = """
     Base.ACTIVE_PROJECT[] = $(repr(project))
@@ -1871,7 +1871,7 @@ let julia = `$(Base.julia_cmd()) --startup-file=no`; mktempdir() do tmp
     addprocs(1)
     """
     cmd = setenv(`$(julia) -e $(activateish * testcode * extracode)`, env)
-    @test success(cmd)
+    @test success(pipeline(cmd; stdout, stderr))
     # JULIA_(LOAD|DEPOT)_PATH
     shufflecode = """
     d = reverse(DEPOT_PATH)
@@ -1890,7 +1890,7 @@ let julia = `$(Base.julia_cmd()) --startup-file=no`; mktempdir() do tmp
     end
     """
     cmd = setenv(`$(julia) -e $(shufflecode * addcode * testcode * extracode)`, env)
-    @test success(cmd)
+    @test success(pipeline(cmd; stdout, stderr))
     # Mismatch when shuffling after proc addition
     failcode = shufflecode * setupcode * """
     for w in workers()
@@ -1899,7 +1899,7 @@ let julia = `$(Base.julia_cmd()) --startup-file=no`; mktempdir() do tmp
     end
     """
     cmd = setenv(`$(julia) -p1 -e $(failcode)`, env)
-    @test success(cmd)
+    @test success(pipeline(cmd; stdout, stderr))
     # Passing env or exeflags to addprocs(...) to override defaults
     envcode = """
     using Distributed
@@ -1921,7 +1921,7 @@ let julia = `$(Base.julia_cmd()) --startup-file=no`; mktempdir() do tmp
     end
     """
     cmd = setenv(`$(julia) -e $(envcode)`, env)
-    @test success(cmd)
+    @test success(pipeline(cmd; stdout, stderr))
 end end
 
 include("splitrange.jl")
