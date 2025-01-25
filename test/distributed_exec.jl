@@ -10,6 +10,8 @@ else
     @test startswith(pathof(Distributed), sharedir)
 end
 
+pathsep = Sys.iswindows() ? ";" : ":"
+
 @test cluster_cookie() isa String
 
 include(joinpath(Sys.BINDIR, "..", "share", "julia", "test", "testenv.jl"))
@@ -1818,9 +1820,11 @@ let julia = `$(Base.julia_cmd()) --startup-file=no`; mktempdir() do tmp
     project = mkdir(joinpath(tmp, "project"))
     depots = [mkdir(joinpath(tmp, "depot1")), mkdir(joinpath(tmp, "depot2"))]
     load_path = [mkdir(joinpath(tmp, "load_path")), "@stdlib", "@"]
-    pathsep = Sys.iswindows() ? ";" : ":"
+    shipped_depots = DEPOT_PATH[2:end] # stdlib caches
+
     env = Dict(
-        "JULIA_DEPOT_PATH" => join(depots, pathsep),
+        # needs a trailing pathsep to access the stdlib depot
+        "JULIA_DEPOT_PATH" => join(depots, pathsep) * pathsep,
         "JULIA_LOAD_PATH" => join(load_path, pathsep),
         # Explicitly propagate `TMPDIR`, in the event that we're running on a
         # CI system where `TMPDIR` is special.
@@ -1874,8 +1878,14 @@ let julia = `$(Base.julia_cmd()) --startup-file=no`; mktempdir() do tmp
     @test success(pipeline(cmd; stdout, stderr))
     # JULIA_(LOAD|DEPOT)_PATH
     shufflecode = """
-    d = reverse(DEPOT_PATH)
-    append!(empty!(DEPOT_PATH), d)
+    function reverse_first_two(depots)
+        custom_depots = depots[1:2]
+        standard_depots = depots[3:end]
+        custom_depots = reverse(custom_depots)
+        return append!(custom_depots, standard_depots)
+    end
+    new_depots = reverse_first_two(DEPOT_PATH)
+    append!(empty!(DEPOT_PATH), new_depots)
     l = reverse(LOAD_PATH)
     append!(empty!(LOAD_PATH), l)
     """
@@ -1886,7 +1896,7 @@ let julia = `$(Base.julia_cmd()) --startup-file=no`; mktempdir() do tmp
     extracode = """
     for w in workers()
         @test remotecall_fetch(load_path, w) == $(repr(reverse(load_path)))
-        @test remotecall_fetch(depot_path, w) == $(repr(reverse(depots)))
+        @test remotecall_fetch(depot_path, w) == $(repr(vcat(reverse(depots), shipped_depots)))
     end
     """
     cmd = setenv(`$(julia) -e $(shufflecode * addcode * testcode * extracode)`, env)
@@ -1895,7 +1905,7 @@ let julia = `$(Base.julia_cmd()) --startup-file=no`; mktempdir() do tmp
     failcode = shufflecode * setupcode * """
     for w in workers()
         @test remotecall_fetch(load_path, w) == reverse(LOAD_PATH) == $(repr(load_path))
-        @test remotecall_fetch(depot_path, w) == reverse(DEPOT_PATH) == $(repr(depots))
+        @test remotecall_fetch(depot_path, w) == reverse_first_two(DEPOT_PATH) == $(repr(vcat(depots, shipped_depots)))
     end
     """
     cmd = setenv(`$(julia) -p1 -e $(failcode)`, env)
@@ -1906,7 +1916,7 @@ let julia = `$(Base.julia_cmd()) --startup-file=no`; mktempdir() do tmp
     project = mktempdir()
     env = Dict(
         "JULIA_LOAD_PATH" => string(LOAD_PATH[1], $(repr(pathsep)), "@stdlib"),
-        "JULIA_DEPOT_PATH" => DEPOT_PATH[1],
+        "JULIA_DEPOT_PATH" => DEPOT_PATH[1] * $(repr(pathsep)),
         "TMPDIR" => ENV["TMPDIR"],
     )
     addprocs(1; env = env, exeflags = `--project=\$(project)`)
@@ -1914,7 +1924,7 @@ let julia = `$(Base.julia_cmd()) --startup-file=no`; mktempdir() do tmp
     addprocs(1; env = env)
     """ * setupcode * """
     for w in workers()
-        @test remotecall_fetch(depot_path, w)          == [DEPOT_PATH[1]]
+        @test remotecall_fetch(depot_path, w)          == vcat(DEPOT_PATH[1], $(repr(shipped_depots)))
         @test remotecall_fetch(load_path, w)           == [LOAD_PATH[1], "@stdlib"]
         @test remotecall_fetch(active_project, w)      == project
         @test remotecall_fetch(Base.active_project, w) == joinpath(project, "Project.toml")
