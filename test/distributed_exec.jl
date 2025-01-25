@@ -208,29 +208,34 @@ put!(f, :OK)
 @test remotecall_fetch(k->haskey(Distributed.PGRP.refs, k), wid1, fid) == false
 @test fetch(f) === :OK
 
-# RemoteException should be thrown on a put! when another process has set the value
-f = Future(wid1)
-fid = remoteref_id(f)
+# Test this multiple times as races have been seen where `@spawn` was used over
+# `@async`. Issue #124
+max_attempts = 100
+for i in 1:max_attempts
+    let f = Future(wid1), fid = remoteref_id(f), fstore = RemoteChannel(wid2)
+        # RemoteException should be thrown on a put! when another process has set the value
 
-fstore = RemoteChannel(wid2)
-put!(fstore, f) # send f to wid2
-put!(f, :OK) # set value from master
+        put!(fstore, f) # send f to wid2
+        put!(f, :OK) # set value from master
 
-@test remotecall_fetch(k->haskey(Distributed.PGRP.refs, k), wid1, fid) == true
+        @test remotecall_fetch(k->haskey(Distributed.PGRP.refs, k), wid1, fid) == true
 
-testval = remotecall_fetch(wid2, fstore) do x
-    try
-        put!(fetch(x), :OK)
-        return 0
-    catch e
-        if isa(e, RemoteException)
-            return 1
-        else
-            return 2
+        testval = remotecall_fetch(wid2, fstore) do x
+            try
+                put!(fetch(x), :OK)
+                return 0
+            catch e
+                if isa(e, RemoteException)
+                    return 1
+                else
+                    rethrow()
+                end
+            end
         end
+        testval == 1 || @info "test failed on attempt $i (max $max_attempts)"
+        @test testval == 1
     end
 end
-@test testval == 1
 
 # Issue number #25847
 @everywhere function f25847(ref)
