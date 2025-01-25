@@ -1937,7 +1937,7 @@ begin
 
     # Next, ensure we get a log message when a worker does not cleanly exit
     w = only(addprocs(1))
-    @test_logs (:warn, r"sending SIGQUIT") begin
+    @test_logs (:warn, r"Sending SIGQUIT") match_mode=:any begin
         remote_do(w) do
             # Cause the 'exit()' message that `rmprocs()` sends to do nothing
             Core.eval(Base, :(exit() = nothing))
