@@ -220,6 +220,16 @@ for i in 1:max_attempts
 
         @test remotecall_fetch(k->haskey(Distributed.PGRP.refs, k), wid1, fid) == true
 
+        # fstore should be ready immediately, but races due to use of `@spawn` have caused
+        # this to fail in the past. So we poll for readiness before the main test after this
+        # which internally checks for `isready` to decide whether to error or not
+        w = remotecall_fetch(wid2, fstore) do x
+            timedwait(() -> isready(fetch(x)), 10)
+        end
+        w == :ok || @info "isready timed out on attempt $i (max $max_attempts)"
+        @test w == :ok
+
+        # This is the actual test. It should fail because the value is already set remotely
         testval = remotecall_fetch(wid2, fstore) do x
             try
                 put!(fetch(x), :OK)
