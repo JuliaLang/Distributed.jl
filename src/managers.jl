@@ -113,7 +113,7 @@ addprocs([
 
 * `exeflags`: additional flags passed to the worker processes. It can either be a `Cmd`, a `String`
   holding one flag, or a collection of strings, with one element per flag.
-  E.g. `\`--threads=auto project=.\``, `"--compile-trace=stderr"` or `["--threads=auto", "--compile=all"]`. 
+  E.g. `\`--threads=auto project=.\``, `"--compile-trace=stderr"` or `["--threads=auto", "--compile=all"]`.
 
 * `topology`: Specifies how the workers connect to each other. Sending a message between
   unconnected workers results in an error.
@@ -178,7 +178,7 @@ function launch(manager::SSHManager, params::Dict, launched::Array, launch_ntfy:
     # Wait for all launches to complete.
     @sync for (i, (machine, cnt)) in enumerate(manager.machines)
         let machine=machine, cnt=cnt
-            Threads.@spawn Threads.threadpool() try
+            @async try
                 launch_on_machine(manager, $machine, $cnt, params, launched, launch_ntfy)
             catch e
                 print(stderr, "exception launching on machine $(machine) : $(e)\n")
@@ -740,16 +740,24 @@ function kill(manager::SSHManager, pid::Int, config::WorkerConfig)
     nothing
 end
 
-function kill(manager::LocalManager, pid::Int, config::WorkerConfig; exit_timeout = 15, term_timeout = 15)
+function kill(manager::LocalManager, pid::Int, config::WorkerConfig; profile_wait = 6, exit_timeout = 15, term_timeout = 15)
+    # profile_wait = 6 is 1s for profile, 5s for the report to show
     # First, try sending `exit()` to the remote over the usual control channels
     remote_do(exit, pid)
 
-    timer_task = Threads.@spawn Threads.threadpool() begin
+    timer_task = @async begin
         sleep(exit_timeout)
 
         # Check to see if our child exited, and if not, send an actual kill signal
         if !process_exited(config.process)
-            @warn("Failed to gracefully kill worker $(pid), sending SIGQUIT")
+            @warn "Failed to gracefully kill worker $(pid)"
+            profile_sig = Sys.iswindows() ? nothing : Sys.isbsd() ? ("SIGINFO", 29) : ("SIGUSR1" , 10)
+            if profile_sig !== nothing
+                @warn("Sending profile $(profile_sig[1]) to worker $(pid)")
+                kill(config.process, profile_sig[2])
+                sleep(profile_wait)
+            end
+            @warn("Sending SIGQUIT to worker $(pid)")
             kill(config.process, Base.SIGQUIT)
 
             sleep(term_timeout)

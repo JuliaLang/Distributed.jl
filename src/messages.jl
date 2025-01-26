@@ -194,13 +194,13 @@ end
 function flush_gc_msgs()
     try
         for w in (PGRP::ProcessGroup).workers
-            if isa(w,Worker) && (w.state == W_CONNECTED) && w.gcflag
+            if isa(w,Worker) && ((@atomic w.state) == W_CONNECTED) && w.gcflag
                 flush_gc_msgs(w)
             end
         end
     catch e
         bt = catch_backtrace()
-        Threads.@spawn showerror(stderr, e, bt)
+        @async showerror(stderr, e, bt)
     end
 end
 
