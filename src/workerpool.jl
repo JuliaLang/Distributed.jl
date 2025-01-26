@@ -135,6 +135,28 @@ function remotecall_pool(rc_f, f, pool::AbstractWorkerPool, args...; kwargs...)
     end
 end
 
+# Specialization for remotecall. We have to wait for the Future it returns
+# before putting the worker back in the pool.
+function remotecall_pool(rc_f::typeof(remotecall), f, pool::AbstractWorkerPool, args...; kwargs...)
+    worker = take!(pool)
+    local x
+    try
+        x = rc_f(f, worker, args...; kwargs...)
+    catch
+        put!(pool, worker)
+        rethrow()
+    end
+
+    t = Threads.@spawn Threads.threadpool() try
+        wait(x)
+    finally
+        put!(pool, worker)
+    end
+    errormonitor(t)
+
+    return x
+end
+
 # Check if pool is local or remote and forward calls if required.
 # NOTE: remotecall_fetch does it automatically, but this will be more efficient as
 # it avoids the overhead associated with a local remotecall.
@@ -242,6 +264,10 @@ remotecall_fetch(f, pool::AbstractWorkerPool, args...; kwargs...) = remotecall_p
 
 [`WorkerPool`](@ref) variant of `remote_do(f, pid, ....)`. Wait for and take a free worker from `pool` and
 perform a `remote_do` on it.
+
+Note that it's not possible to wait for the result of a `remote_do()` to finish
+so the worker will immediately be put back in the pool (i.e. potentially causing
+oversubscription).
 """
 remote_do(f, pool::AbstractWorkerPool, args...; kwargs...) = remotecall_pool(remote_do, f, pool, args...; kwargs...)
 
