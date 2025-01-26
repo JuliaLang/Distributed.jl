@@ -400,3 +400,28 @@ function remotecall_pool(rc_f, f, pool::CachingPool, args...; kwargs...)
         put!(pool, worker)
     end
 end
+
+# Specialization for remotecall. We have to wait for the Future it returns
+# before putting the worker back in the pool.
+function remotecall_pool(rc_f::typeof(remotecall), f, pool::CachingPool, args...; kwargs...)
+    worker = take!(pool)
+    f_ref = get(pool.map_obj2ref, (worker, f), (f, RemoteChannel(worker)))
+    isa(f_ref, Tuple) && (pool.map_obj2ref[(worker, f)] = f_ref[2])   # Add to tracker
+
+    local x
+    try
+        x = rc_f(exec_from_cache, worker, f_ref, args...; kwargs...)
+    catch
+        put!(pool, worker)
+        rethrow()
+    end
+
+    t = Threads.@spawn Threads.threadpool() try
+        wait(x)
+    finally
+        put!(pool, worker)
+    end
+    errormonitor(t)
+
+    return x
+end
