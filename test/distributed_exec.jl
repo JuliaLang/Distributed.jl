@@ -718,6 +718,8 @@ wp = WorkerPool(workers())
 @test nworkers() == length(unique(remotecall_fetch(wp->pmap(_->myid(), wp, 1:100), id_other, wp)))
 wp = WorkerPool(2:3)
 @test sort(unique(pmap(_->myid(), wp, 1:100))) == [2,3]
+@test fetch(remotecall(myid, wp)) in wp.workers
+@test_throws RemoteException fetch(remotecall(error, wp))
 
 # wait on worker pool
 wp = WorkerPool(2:2)
@@ -743,6 +745,8 @@ status = timedwait(() -> isready(f), 10)
 # CachingPool tests
 wp = CachingPool(workers())
 @test [1:100...] == pmap(x->x, wp, 1:100)
+@test fetch(remotecall(myid, wp)) in wp.workers
+@test_throws RemoteException fetch(remotecall(error, wp))
 
 clear!(wp)
 @test length(wp.map_obj2ref) == 0
@@ -1092,16 +1096,18 @@ end
 # Test the behaviour of remotecall(f, ::AbstractWorkerPool), this should
 # keep the worker out of the pool until the underlying remotecall has
 # finished.
-let
-    remotechan = RemoteChannel(wrkr1)
-    pool = WorkerPool([wrkr1])
-    put_future = remotecall(() -> wait(remotechan), pool)
-    @test !isready(pool)
-    put!(remotechan, 1)
-    wait(put_future)
-    # The task that waits on the future to put it back into the pool runs
-    # asynchronously so we use timedwait() to check when the worker is back in.
-    @test timedwait(() -> isready(pool), 10) === :ok
+for PoolType in (WorkerPool, CachingPool)
+    let
+        remotechan = RemoteChannel(wrkr1)
+        pool = PoolType([wrkr1])
+        put_future = remotecall(() -> wait(remotechan), pool)
+        @test !isready(pool)
+        put!(remotechan, 1)
+        wait(put_future)
+        # The task that waits on the future to put it back into the pool runs
+        # asynchronously so we use timedwait() to check when the worker is back in.
+        @test timedwait(() -> isready(pool), 10) === :ok
+    end
 end
 
 # Test calling @everywhere from a module not defined on the workers

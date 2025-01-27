@@ -1,6 +1,13 @@
 # This file is a part of Julia. License is MIT: https://julialang.org/license
 
 using Test
+using Distributed
+
+if !Base.get_bool_env("BUILDKITE", false)
+    @testset "Aqua.jl tests" begin
+        include("aqua.jl")
+    end
+end
 
 # Run the distributed test outside of the main driver since it needs its own
 # set of dedicated workers.
