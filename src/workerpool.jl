@@ -149,6 +149,7 @@ function remotecall_pool(rc_f::typeof(remotecall), f, pool::AbstractWorkerPool, 
 
     t = Threads.@spawn Threads.threadpool() try
         wait(x)
+    catch # just wait, ignore errors here
     finally
         put!(pool, worker)
     end
@@ -418,6 +419,7 @@ function remotecall_pool(rc_f::typeof(remotecall), f, pool::CachingPool, args...
 
     t = Threads.@spawn Threads.threadpool() try
         wait(x)
+    catch # just wait, ignore errors here
     finally
         put!(pool, worker)
     end
