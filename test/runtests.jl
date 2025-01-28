@@ -3,7 +3,10 @@
 using Test
 using Distributed
 
-if !Base.get_bool_env("BUILDKITE", false)
+# On GitHub Actions CI (on the Distributed.jl repo): yes we run Aqua.
+# On Base Julia Buildkite CI (on the JuliaLang/julia repo): no Aqua
+# When the user manually runs `make test-Distributed` locally: no Aqua
+if Base.get_bool_env("GITHUB_ACTIONS", false)
     @testset "Aqua.jl tests" begin
         include("aqua.jl")
     end
