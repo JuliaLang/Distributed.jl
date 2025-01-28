@@ -3,7 +3,8 @@
 using Test
 using Distributed
 
-if !Base.get_bool_env("BUILDKITE", false)
+# only run these if Aqua is installed. i.e. Pkg.test has installed it, or it is provided as a shared package
+if Base.locate_package(Base.PkgId(Base.UUID("4c88cf16-eb10-579e-8560-4a9242c79595"), "Aqua")) isa String
     @testset "Aqua.jl tests" begin
         include("aqua.jl")
     end
