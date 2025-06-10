@@ -1292,7 +1292,9 @@ function init_bind_addr()
     else
         bind_port = 0
         try
-            # Use the first non-link-local IPv4 address
+            # On HPC clusters, link-local addresses are usually not usable for
+            # communication between compute nodes.
+            # Therefore, we use the first non-link-local IPv4 address.
             addrs = Sockets.getipaddrs(Sockets.IPv4)
             filter!(!Sockets.islinklocaladdr, addrs)
             bind_addr = string(first(addrs))
