@@ -1279,12 +1279,25 @@ function terminate_all_workers()
 end
 
 function choose_bind_addr()
-    # On HPC clusters, link-local addresses are usually not usable for
-    # communication between compute nodes.
-    # Therefore, we use the first non-link-local IPv4 address.
-    addrs = Sockets.getipaddrs(Sockets.IPv4)
-    filter!(!Sockets.islinklocaladdr, addrs)
-    return first(addrs)
+    # We prefer IPv4 over IPv6.
+    #
+    # We also prefer non-link-local over link-local.
+    # (This is because on HPC clusters, link-local addresses are usually not
+    # usable for communication between compute nodes.
+    #
+    # Therefore, our order of preference is:
+    # 1. Non-link-local IPv4
+    # 2. Non-link-local IPv6
+    # 3. Link-local IPv4
+    # 4. Link-local IPv6
+    addrs = getipaddrs()
+    i = something(
+        findfirst(ip -> !islinklocaladdr(ip) && ip isa IPv4, addrs), # first non-link-local IPv4
+        findfirst(ip -> !islinklocaladdr(ip), addrs), # first non-link-local
+        findfirst(ip -> ip isa IPv4, addrs), # first IPv4
+        1, # first address
+    )
+    return addrs[i]
 end
 
 # initialize the local proc network address / port
