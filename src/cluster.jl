@@ -1278,6 +1278,15 @@ function terminate_all_workers()
     end
 end
 
+function choose_bind_addr()
+    # On HPC clusters, link-local addresses are usually not usable for
+    # communication between compute nodes.
+    # Therefore, we use the first non-link-local IPv4 address.
+    addrs = Sockets.getipaddrs(Sockets.IPv4)
+    filter!(!Sockets.islinklocaladdr, addrs)
+    return first(addrs)
+end
+
 # initialize the local proc network address / port
 function init_bind_addr()
     opts = JLOptions()
@@ -1292,12 +1301,7 @@ function init_bind_addr()
     else
         bind_port = 0
         try
-            # On HPC clusters, link-local addresses are usually not usable for
-            # communication between compute nodes.
-            # Therefore, we use the first non-link-local IPv4 address.
-            addrs = Sockets.getipaddrs(Sockets.IPv4)
-            filter!(!Sockets.islinklocaladdr, addrs)
-            bind_addr = string(first(addrs))
+            bind_addr = string(choose_bind_addr())
         catch
             # All networking is unavailable, initialize bind_addr to the loopback address
             # Will cause an exception to be raised only when used.
