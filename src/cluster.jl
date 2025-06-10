@@ -1293,9 +1293,9 @@ function choose_bind_addr()
     addrs = getipaddrs()
     i = something(
         findfirst(ip -> !islinklocaladdr(ip) && ip isa IPv4, addrs), # first non-link-local IPv4
-        findfirst(ip -> !islinklocaladdr(ip), addrs), # first non-link-local
+        findfirst(ip -> !islinklocaladdr(ip) && ip isa IPv6, addrs), # first non-link-local IPv6
         findfirst(ip -> ip isa IPv4, addrs), # first IPv4
-        1, # first address
+        findfirst(ip -> ip isa IPv6, addrs), # first IPv6
     )
     return addrs[i]
 end
