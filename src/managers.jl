@@ -168,6 +168,7 @@ default_addprocs_params(::SSHManager) =
               :sshflags       => ``,
               :shell          => :posix,
               :cmdline_cookie => false,
+              :custom_worker_flag => nothing,
               :env            => [],
               :tunnel         => false,
               :multiplex      => false,
@@ -238,6 +239,7 @@ function launch_on_machine(manager::SSHManager, machine::AbstractString, cnt, pa
     tunnel = params[:tunnel]
     multiplex = params[:multiplex]
     cmdline_cookie = params[:cmdline_cookie]
+    custom_worker_flag = params[:custom_worker_flag]
     env = Dict{String,String}(params[:env])
 
     # machine could be of the format [user@]host[:port] bind_addr[:bind_port]
@@ -249,10 +251,14 @@ function launch_on_machine(manager::SSHManager, machine::AbstractString, cnt, pa
     if length(machine_bind) > 1
         exeflags = `--bind-to $(machine_bind[2]) $exeflags`
     end
-    if cmdline_cookie
-        exeflags = `$exeflags --worker=$(cluster_cookie())`
+    if isnothing(custom_worker_flag)
+        if cmdline_cookie
+            exeflags = `$exeflags --worker=$(cluster_cookie())`
+        else
+            exeflags = `$exeflags --worker`
+        end
     else
-        exeflags = `$exeflags --worker`
+        exeflags = `$exeflags $custom_worker_flag`
     end
 
     host, portnum = parse_machine(machine_bind[1])
