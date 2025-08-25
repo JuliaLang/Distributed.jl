@@ -22,7 +22,7 @@ jobs:
       fail-fast: false
       matrix:
         version:
-          - 'nightly'
+          - '1.11' # This is the `release-julia-1.11` branch, so we run CI on Julia 1.11.x
         os:
           - ubuntu-latest
           - macOS-latest
@@ -64,7 +64,7 @@ jobs:
       - uses: julia-actions/setup-julia@latest
         with:
           # version: '1.6'
-          version: 'nightly'
+          version: '1.11' # This is the `release-julia-1.11` branch, so we run CI on Julia 1.11.x
       - name: Generate docs
         run: |
           julia --color=yes -e 'write("Project.toml", replace(read("Project.toml", String), r"uuid = .*?\n" =>"uuid = \"47e2e46d-f89d-539d-b4ee-838fcccc9c8e\"\n"));'
