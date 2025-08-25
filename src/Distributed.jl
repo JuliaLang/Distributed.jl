@@ -5,6 +5,8 @@ Tools for distributed parallel processing.
 """
 module Distributed
 
+# Hello world
+
 # imports for extension
 import Base: getindex, wait, put!, take!, fetch, isready, push!, length,
              hash, ==, kill, close, isopen, showerror, iterate, IteratorSize
