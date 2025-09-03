@@ -167,7 +167,7 @@ function message_handler_loop(r_stream::IO, w_stream::IO, incoming::Bool)
 
         readbytes!(r_stream, boundary, length(MSG_BOUNDARY))
 
-        while true
+        while !(incoming && eof(r_stream))
             reset_state(serializer)
             header = deserialize_hdr_raw(r_stream)
             # println("header: ", header)
