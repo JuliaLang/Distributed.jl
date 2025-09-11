@@ -1,5 +1,7 @@
 # Distributed
 
+[![codecov](https://codecov.io/gh/JuliaLang/Distributed.jl/graph/badge.svg?token=TzEHMuk1E3)](https://codecov.io/gh/JuliaLang/Distributed.jl)
+
 The `Distributed` package provides functionality for creating and controlling
 multiple Julia processes remotely, and for performing distributed and parallel
 computing. It uses network sockets or other supported interfaces to communicate
