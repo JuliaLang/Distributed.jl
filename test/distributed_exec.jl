@@ -1856,7 +1856,8 @@ let julia = `$(Base.julia_cmd()) --startup-file=no`; mktempdir() do tmp
     project = mkdir(joinpath(tmp, "project"))
     depots = [mkdir(joinpath(tmp, "depot1")), mkdir(joinpath(tmp, "depot2"))]
     load_path = [mkdir(joinpath(tmp, "load_path")), "@stdlib", "@"]
-    shipped_depots = DEPOT_PATH[2:end] # stdlib caches
+    shipped_depots = String[] # stdlib caches
+    Base.append_bundled_depot_path!(shipped_depots)
 
     env = Dict(
         # needs a trailing pathsep to access the stdlib depot
