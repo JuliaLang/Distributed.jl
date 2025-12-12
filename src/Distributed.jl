@@ -68,6 +68,7 @@ export
     worker_id_from_socket,
     cluster_cookie,
     start_worker,
+    worker_output_hook,
 
 # Used only by shared arrays.
     check_same_host
