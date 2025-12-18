@@ -328,7 +328,7 @@ function redirect_worker_output(ident, stream)
                 end
             end
             if !handled
-                println("From worker $(ident): $line")
+                println("  From worker $(ident):\t$line")
             end
         end
     end
