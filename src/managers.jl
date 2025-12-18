@@ -631,7 +631,7 @@ function connect(manager::ClusterManager, pid::Int, config::WorkerConfig)
 
     if config.io !== nothing
         let pid = pid
-            redirect_worker_output(pid, notnothing(config.io))
+            redirect_worker_output("$pid", notnothing(config.io))
         end
     end
 
