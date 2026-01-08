@@ -253,9 +253,9 @@ function start_worker(out::IO, cookie::AbstractString=readline(stdin); close_std
     else
         listen(interface, LPROC.bind_port)
     end
-    let sock_local = sock
-        errormonitor(@async while isopen(sock_local)
-            client = accept(sock_local)
+    let sock = sock
+        errormonitor(@async while isopen(sock)
+            client = accept(sock)
             process_messages(client, client, true)
         end)
     end
@@ -608,9 +608,8 @@ function create_worker(manager, wconfig)
 
     # initiate a connect. Does not wait for connection completion in case of TCP.
     w_stub = Worker()
-    local r_s, w_s
-    try
-        (r_s, w_s) = connect(manager, w_stub.id, wconfig)
+    r_s, w_s = try
+        connect(manager, w_stub.id, wconfig)
     catch ex
         try
             deregister_worker(w_stub.id)
