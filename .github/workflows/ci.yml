@@ -15,6 +15,9 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}-${{ github.ref != 'refs/heads/main' || startsWith(github.ref, 'refs/heads/release-') || github.run_number }}
   cancel-in-progress: ${{ startsWith(github.ref, 'refs/pull/') }}
 
+permissions:
+  contents: read
+
 jobs:
   test:
     name: julia -t${{ matrix.threads}} - ${{ matrix.version }} - ${{ matrix.os }} - ${{ matrix.arch }} - ${{ github.event_name }}
@@ -40,6 +43,8 @@ jobs:
             arch: x86
     steps:
       - uses: actions/checkout@v6
+        with:
+            persist-credentials: false
       - uses: julia-actions/setup-julia@v2
         with:
           version: ${{ matrix.version }}
@@ -59,6 +64,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+        with:
+            persist-credentials: false
       - uses: julia-actions/setup-julia@latest
         with:
           # version: '1.6'
@@ -70,3 +77,20 @@ jobs:
           julia --project=docs --color=yes docs/make.jl pdf
         env:
           DOCUMENTER_KEY: ${{ secrets.DOCUMENTER_KEY }}
+
+  jet:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+            persist-credentials: false
+      - uses: julia-actions/setup-julia@latest
+        with:
+          version: '1.12'
+          # version: 'nightly'
+      - name: Edit Distributed UUID
+        run: |
+          julia --color=yes -e 'write("Project.toml", replace(read("Project.toml", String), r"uuid = .*?\n" =>"uuid = \"47e2e46d-f89d-539d-b4ee-838fcccc9c8e\"\n"));'
+      - run: julia --color=yes --project=ci/jet -e 'import Pkg; Pkg.instantiate()'
+      - name: Run the JET tests
+        run: julia --color=yes --project=ci/jet ci/jet/check.jl
