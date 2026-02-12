@@ -384,5 +384,5 @@ function handle_msg(msg::JoinCompleteMsg, header, r_stream, w_stream, version)
     ntfy_channel = lookup_ref(header.notify_oid)
     put!(ntfy_channel, w.id)
 
-    push!(default_worker_pool(), w.id)
+    push!(default_worker_pool()::AbstractWorkerPool, w.id)
 end
