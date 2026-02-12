@@ -75,7 +75,7 @@ function run_work_thunk(thunk::Function, print_error::Bool)
     end
     return result
 end
-function run_work_thunk(rv::RemoteValue, thunk)
+function run_work_thunk(rv::RemoteValue, thunk::Function)
     put!(rv, run_work_thunk(thunk, false))
     nothing
 end
