@@ -359,6 +359,7 @@ macro distributed(args...)
             ref
         end
     else
+        @assert @isdefined reducer # Fixes a JET warning
         return :(preduce($(esc(reducer)), $(make_preduce_body(var, body)), $(esc(r))))
     end
 end
