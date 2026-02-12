@@ -315,8 +315,12 @@ function handle_msg(msg::ResultMsg, header, r_stream, w_stream, version)
 end
 
 function handle_msg(msg::IdentifySocketMsg, header, r_stream, w_stream, version)
+    # We know that the global `Distributed.cluster_manager` is defined, because it was defined
+    # in the `init_worker(...)` function.
+    @assert isdefined(Distributed, :cluster_manager) # fixes a JET warning
+
     # register a new peer worker connection
-    w = Worker(msg.from_pid, r_stream, w_stream, cluster_manager; version=version)::Worker
+    w = Worker(msg.from_pid, r_stream, w_stream, Distributed.cluster_manager; version=version)::Worker
     send_connection_hdr(w, false)
     send_msg_now(w, MsgHeader(), IdentifySocketAckMsg())
     notify(w.initialized)
@@ -328,8 +332,12 @@ function handle_msg(msg::IdentifySocketAckMsg, header, r_stream, w_stream, versi
 end
 
 function handle_msg(msg::JoinPGRPMsg, header, r_stream, w_stream, version)
+    # We know that the global `cluster_manager` is defined, because it was defined
+    # in the `init_worker(...)` function.
+    @assert isdefined(Distributed, :cluster_manager) # fixes a JET warning
+
     LPROC.id = msg.self_pid
-    controller = Worker(1, r_stream, w_stream, cluster_manager; version=version)::Worker
+    controller = Worker(1, r_stream, w_stream, Distributed.cluster_manager; version=version)::Worker
     notify(controller.initialized)
     register_worker(LPROC)
     topology(msg.topology)
