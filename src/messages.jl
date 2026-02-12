@@ -110,7 +110,7 @@ end
 function send_msg_now(s::IO, header, msg::AbstractMsg)
     id = worker_id_from_socket(s)
     if id > -1
-        return send_msg_now(worker_from_id(id), header, msg)
+        return send_msg_now(worker_from_id(id)::Worker, header, msg)
     end
     send_msg_unknown(s, header, msg)
 end
