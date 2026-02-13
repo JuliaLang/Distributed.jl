@@ -320,7 +320,7 @@ function launch_on_machine(manager::SSHManager, machine::AbstractString, cnt, pa
 
         any(c -> c == '"', exename) && throw(ArgumentError("invalid exename"))
 
-        remotecmd = shell_escape_wincmd(escape_microsoft_c_args(exename, exeflags...))
+        remotecmd = shell_escape_wincmd(escape_microsoft_c_args(exename, exeflags...)::AbstractString)
         # change working directory
         if dir !== nothing && dir != ""
             any(c -> c == '"', dir) && throw(ArgumentError("invalid dir"))
@@ -526,7 +526,7 @@ end
 
 function manage(manager::LocalManager, id::Integer, config::WorkerConfig, op::Symbol)
     if op === :interrupt
-        kill(config.process, 2)
+        kill(config.process::Process, 2)
     end
 end
 
@@ -579,7 +579,7 @@ function connect(manager::ClusterManager, pid::Int, config::WorkerConfig)
 
     # master connecting to workers
     if config.io !== nothing
-        (bind_addr, port::Int) = read_worker_host_port(config.io)
+        (bind_addr, port::Int) = read_worker_host_port(config.io::IO)
         pubhost = something(config.host, bind_addr)
         config.host = pubhost
         config.port = port
@@ -749,21 +749,21 @@ function kill(manager::LocalManager, pid::Int, config::WorkerConfig; profile_wai
         sleep(exit_timeout)
 
         # Check to see if our child exited, and if not, send an actual kill signal
-        if !process_exited(config.process)
+        if !process_exited(config.process::Process)
             @warn "Failed to gracefully kill worker $(pid)"
             profile_sig = Sys.iswindows() ? nothing : Sys.isbsd() ? ("SIGINFO", 29) : ("SIGUSR1" , 10)
             if profile_sig !== nothing
                 @warn("Sending profile $(profile_sig[1]) to worker $(pid)")
-                kill(config.process, profile_sig[2])
+                kill(config.process::Process, profile_sig[2])
                 sleep(profile_wait)
             end
             @warn("Sending SIGQUIT to worker $(pid)")
-            kill(config.process, Base.SIGQUIT)
+            kill(config.process::Process, Base.SIGQUIT)
 
             sleep(term_timeout)
-            if !process_exited(config.process)
+            if !process_exited(config.process::Process)
                 @warn("Worker $(pid) ignored SIGQUIT, sending SIGKILL")
-                kill(config.process, Base.SIGKILL)
+                kill(config.process::Process, Base.SIGKILL)
             end
         end
     end

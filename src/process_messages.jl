@@ -75,7 +75,7 @@ function run_work_thunk(thunk::Function, print_error::Bool)
     end
     return result
 end
-function run_work_thunk(rv::RemoteValue, thunk)
+function run_work_thunk(rv::RemoteValue, thunk::Function)
     put!(rv, run_work_thunk(thunk, false))
     nothing
 end
@@ -289,7 +289,7 @@ function handle_msg(msg::CallMsg{:call_fetch}, header, r_stream, w_stream, versi
             try
                 deliver_result(w_stream, :call_fetch, header.notify_oid, v.v)
             finally
-                unlock(v.rv.synctake)
+                unlock(v.rv.synctake::ReentrantLock)
             end
         else
             deliver_result(w_stream, :call_fetch, header.notify_oid, v)
@@ -384,5 +384,5 @@ function handle_msg(msg::JoinCompleteMsg, header, r_stream, w_stream, version)
     ntfy_channel = lookup_ref(header.notify_oid)
     put!(ntfy_channel, w.id)
 
-    push!(default_worker_pool(), w.id)
+    push!(default_worker_pool()::AbstractWorkerPool, w.id)
 end

@@ -9,6 +9,11 @@ Cluster managers implement how workers can be added, removed and communicated wi
 """
 abstract type ClusterManager end
 
+# cluster_manager is a global non-constant variable:
+# It gets defined in init_worker, and then is used in several different
+# methods of handle_msg
+global cluster_manager::ClusterManager
+
 """
     WorkerConfig
 
@@ -560,7 +565,7 @@ function setup_launched_worker(manager, wconfig, launched_q)
     # same type. This is done by setting an appropriate value to `WorkerConfig.cnt`.
     cnt = something(wconfig.count, 1)
     if cnt === :auto
-        cnt = wconfig.environ[:cpu_threads]
+        cnt = (wconfig.environ::AbstractDict)[:cpu_threads]
     end
     cnt = cnt - 1   # Removing self from the requested number
 
@@ -598,7 +603,7 @@ function launch_n_additional_processes(manager, frompid, fromconfig, cnt, launch
     end
 end
 
-function create_worker(manager, wconfig)
+function create_worker(manager::ClusterManager, wconfig::WorkerConfig)
     # only node 1 can add new nodes, since nobody else has the full list of address:port
     @assert LPROC.id == 1
     timeout = worker_timeout()
