@@ -9,6 +9,11 @@ Cluster managers implement how workers can be added, removed and communicated wi
 """
 abstract type ClusterManager end
 
+# cluster_manager is a global non-constant variable:
+# It gets defined in init_worker, and then is used in several different
+# methods of handle_msg
+global cluster_manager::ClusterManager
+
 """
     WorkerConfig
 
