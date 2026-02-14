@@ -413,8 +413,8 @@ function serialize(s::AbstractSerializer, ::Future)
     invoke(serialize, Tuple{AbstractSerializer, Any}, s, zero_fut)
 end
 
-function serialize(s::AbstractSerializer, ::RemoteChannel)
-    zero_rc = RemoteChannel{Channel{Any}}((0,0,0))
+function serialize(s::AbstractSerializer, ::RemoteChannel{T}) where T
+    zero_rc = RemoteChannel{T}((0,0,0))
     invoke(serialize, Tuple{AbstractSerializer, Any}, s, zero_rc)
 end
 
