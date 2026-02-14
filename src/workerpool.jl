@@ -139,9 +139,8 @@ end
 # before putting the worker back in the pool.
 function remotecall_pool(rc_f::typeof(remotecall), f, pool::AbstractWorkerPool, args...; kwargs...)
     worker = take!(pool)
-    local x
-    try
-        x = rc_f(f, worker, args...; kwargs...)
+    x = try
+        rc_f(f, worker, args...; kwargs...)
     catch
         put!(pool, worker)
         rethrow()
@@ -409,9 +408,8 @@ function remotecall_pool(rc_f::typeof(remotecall), f, pool::CachingPool, args...
     f_ref = get(pool.map_obj2ref, (worker, f), (f, RemoteChannel(worker)))
     isa(f_ref, Tuple) && (pool.map_obj2ref[(worker, f)] = f_ref[2])   # Add to tracker
 
-    local x
-    try
-        x = rc_f(exec_from_cache, worker, f_ref, args...; kwargs...)
+    x = try
+        rc_f(exec_from_cache, worker, f_ref, args...; kwargs...)
     catch
         put!(pool, worker)
         rethrow()
