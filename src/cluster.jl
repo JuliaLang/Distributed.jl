@@ -9,6 +9,14 @@ Cluster managers implement how workers can be added, removed and communicated wi
 """
 abstract type ClusterManager end
 
+# cluster_manager is a global constant
+const cluster_manager = Ref{ClusterManager}()
+
+function throw_if_cluster_manager_unassigned()
+    isassigned(cluster_manager) || error("cluster_manager is unassigned")
+    return nothing
+end
+
 """
     WorkerConfig
 
@@ -379,8 +387,7 @@ function init_worker(cookie::AbstractString, manager::ClusterManager=DefaultClus
 
     # On workers, the default cluster manager connects via TCP sockets. Custom
     # transports will need to call this function with their own manager.
-    global cluster_manager
-    cluster_manager = manager
+    cluster_manager[] = manager
 
     # Since our pid has yet to be set, ensure no RemoteChannel / Future  have been created or addprocs() called.
     @assert nprocs() <= 1
