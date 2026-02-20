@@ -253,17 +253,20 @@ function start_worker(out::IO, cookie::AbstractString=readline(stdin); close_std
 
     init_worker(cookie)
     interface = IPv4(LPROC.bind_addr)
-    if LPROC.bind_port == 0
+    sock = if LPROC.bind_port == 0
         port_hint = 9000 + (getpid() % 1000)
         (port, sock) = listenany(interface, UInt16(port_hint))
         LPROC.bind_port = port
+        sock
     else
-        sock = listen(interface, LPROC.bind_port)
+        listen(interface, LPROC.bind_port)
     end
-    errormonitor(@async while isopen(sock)
-        client = accept(sock)
-        process_messages(client, client, true)
-    end)
+    let sock = sock
+        errormonitor(@async while isopen(sock)
+            client = accept(sock)
+            process_messages(client, client, true)
+        end)
+    end
     print(out, "julia_worker:")  # print header
     print(out, "$(string(LPROC.bind_port))#") # print port
     print(out, LPROC.bind_addr)
@@ -611,20 +614,19 @@ function create_worker(manager, wconfig)
     timeout = worker_timeout()
 
     # initiate a connect. Does not wait for connection completion in case of TCP.
-    w = Worker()
-    local r_s, w_s
-    try
-        (r_s, w_s) = connect(manager, w.id, wconfig)
+    w_stub = Worker()
+    r_s, w_s = try
+        connect(manager, w_stub.id, wconfig)
     catch ex
         try
-            deregister_worker(w.id)
-            kill(manager, w.id, wconfig)
+            deregister_worker(w_stub.id)
+            kill(manager, w_stub.id, wconfig)
         finally
             rethrow(ex)
         end
     end
 
-    w = Worker(w.id, r_s, w_s, manager; config=wconfig)
+    w = Worker(w_stub.id, r_s, w_s, manager; config=wconfig)
     # install a finalizer to perform cleanup if necessary
     finalizer(w) do w
         if myid() == 1
