@@ -333,6 +333,7 @@ completion. To wait for completion, prefix the call with [`@sync`](@ref), like :
 macro distributed(args...)
     na = length(args)
     if na==1
+        reducer = identity
         loop = args[1]
     elseif na==2
         reducer = args[1]
@@ -359,7 +360,6 @@ macro distributed(args...)
             ref
         end
     else
-        @assert @isdefined reducer # Fixes a JET warning
         return :(preduce($(esc(reducer)), $(make_preduce_body(var, body)), $(esc(r))))
     end
 end
