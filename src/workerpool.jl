@@ -289,7 +289,7 @@ julia> default_worker_pool()
 WorkerPool(Channel{Int64}(sz_max:9223372036854775807,sz_curr:3), Set([4, 2, 3]), RemoteChannel{Channel{Any}}(1, 1, 4))
 ```
 """
-function default_worker_pool()
+function default_worker_pool()::AbstractWorkerPool
     # On workers retrieve the default worker pool from the master when accessed
     # for the first time
     if _default_worker_pool[] === nothing
