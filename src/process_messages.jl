@@ -289,7 +289,7 @@ function handle_msg(msg::CallMsg{:call_fetch}, header, r_stream, w_stream, versi
             try
                 deliver_result(w_stream, :call_fetch, header.notify_oid, v.v)
             finally
-                unlock(v.rv.synctake)
+                unlock(v.rv.synctake::ReentrantLock)
             end
         else
             deliver_result(w_stream, :call_fetch, header.notify_oid, v)
