@@ -75,7 +75,7 @@ function run_work_thunk(thunk::Function, print_error::Bool)
     end
     return result
 end
-function run_work_thunk(rv::RemoteValue, thunk::Function)
+function run_work_thunk(rv::RemoteValue, thunk::Base.Callable)
     put!(rv, run_work_thunk(thunk, false))
     nothing
 end
