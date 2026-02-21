@@ -75,7 +75,7 @@ function run_work_thunk(thunk::Function, print_error::Bool)
     end
     return result
 end
-function run_work_thunk(rv::RemoteValue, thunk)
+function run_work_thunk_remotevalue(rv::RemoteValue, thunk)
     put!(rv, run_work_thunk(thunk, false))
     nothing
 end
@@ -85,7 +85,7 @@ function schedule_call(rid, thunk)
         rv = RemoteValue(def_rv_channel())
         (PGRP::ProcessGroup).refs[rid] = rv
         push!(rv.clientset, rid.whence)
-        errormonitor(@async run_work_thunk(rv, thunk))
+        errormonitor(@async run_work_thunk_remotevalue(rv, thunk))
         return rv
     end
 end
