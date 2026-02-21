@@ -608,7 +608,7 @@ function launch_n_additional_processes(manager, frompid, fromconfig, cnt, launch
     end
 end
 
-function create_worker(manager, wconfig)
+function create_worker(manager::ClusterManager, wconfig::WorkerConfig)
     # only node 1 can add new nodes, since nobody else has the full list of address:port
     @assert LPROC.id == 1
     timeout = worker_timeout()
