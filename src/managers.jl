@@ -755,16 +755,16 @@ function kill(manager::LocalManager, pid::Int, config::WorkerConfig; profile_wai
             profile_sig = Sys.iswindows() ? nothing : Sys.isbsd() ? ("SIGINFO", 29) : ("SIGUSR1" , 10)
             if profile_sig !== nothing
                 @warn("Sending profile $(profile_sig[1]) to worker $(pid)")
-                kill(config.process::Process, profile_sig[2])
+                kill(process, profile_sig[2])
                 sleep(profile_wait)
             end
             @warn("Sending SIGQUIT to worker $(pid)")
-            kill(config.process::Process, Base.SIGQUIT)
+            kill(process, Base.SIGQUIT)
 
             sleep(term_timeout)
-            if !process_exited(config.process::Process)
+            if !process_exited(process)
                 @warn("Worker $(pid) ignored SIGQUIT, sending SIGKILL")
-                kill(config.process::Process, Base.SIGKILL)
+                kill(process, Base.SIGKILL)
             end
         end
     end
