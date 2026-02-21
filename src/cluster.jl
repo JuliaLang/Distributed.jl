@@ -9,6 +9,14 @@ Cluster managers implement how workers can be added, removed and communicated wi
 """
 abstract type ClusterManager end
 
+# cluster_manager is a global constant
+const cluster_manager = Ref{ClusterManager}()
+
+function throw_if_cluster_manager_unassigned()
+    isassigned(cluster_manager) || error("cluster_manager is unassigned")
+    return nothing
+end
+
 """
     WorkerConfig
 
@@ -99,10 +107,10 @@ mutable struct Worker
     del_msgs::Array{Any,1} # XXX: Could del_msgs and add_msgs be Channels?
     add_msgs::Array{Any,1}
     @atomic gcflag::Bool
-    state::WorkerState
-    c_state::Condition      # wait for state changes
-    ct_time::Float64        # creation time
-    conn_func::Any          # used to setup connections lazily
+    @atomic state::WorkerState
+    c_state::Threads.Condition # wait for state changes, lock for state
+    ct_time::Float64           # creation time
+    conn_func::Any             # used to setup connections lazily
 
     r_stream::IO
     w_stream::IO
@@ -134,7 +142,7 @@ mutable struct Worker
         if haskey(map_pid_wrkr, id)
             return map_pid_wrkr[id]
         end
-        w=new(id, Threads.ReentrantLock(), [], [], false, W_CREATED, Condition(), time(), conn_func)
+        w=new(id, Threads.ReentrantLock(), [], [], false, W_CREATED, Threads.Condition(), time(), conn_func)
         w.initialized = Event()
         register_worker(w)
         w
@@ -144,12 +152,14 @@ mutable struct Worker
 end
 
 function set_worker_state(w, state)
-    w.state = state
-    notify(w.c_state; all=true)
+    lock(w.c_state) do
+        @atomic w.state = state
+        notify(w.c_state; all=true)
+    end
 end
 
 function check_worker_state(w::Worker)
-    if w.state === W_CREATED
+    if (@atomic w.state) === W_CREATED
         if !isclusterlazy()
             if PGRP.topology === :all_to_all
                 # Since higher pids connect with lower pids, the remote worker
@@ -170,6 +180,7 @@ function check_worker_state(w::Worker)
             wait_for_conn(w)
         end
     end
+    return nothing
 end
 
 exec_conn_func(id::Int) = exec_conn_func(worker_from_id(id)::Worker)
@@ -187,13 +198,15 @@ function exec_conn_func(w::Worker)
 end
 
 function wait_for_conn(w)
-    if w.state === W_CREATED
+    if (@atomic w.state) === W_CREATED
         timeout =  worker_timeout() - (time() - w.ct_time)
         timeout <= 0 && error("peer $(w.id) has not connected to $(myid())")
 
-        @async (sleep(timeout); notify(w.c_state; all=true))
-        wait(w.c_state)
-        w.state === W_CREATED && error("peer $(w.id) didn't connect to $(myid()) within $timeout seconds")
+        if timedwait(() -> (@atomic w.state) === W_CONNECTED, timeout) === :timed_out
+            # Notify any waiters on the state and throw
+            @lock w.c_state notify(w.c_state)
+            error("peer $(w.id) didn't connect to $(myid()) within $timeout seconds")
+        end
     end
     nothing
 end
@@ -240,17 +253,20 @@ function start_worker(out::IO, cookie::AbstractString=readline(stdin); close_std
 
     init_worker(cookie)
     interface = IPv4(LPROC.bind_addr)
-    if LPROC.bind_port == 0
+    sock = if LPROC.bind_port == 0
         port_hint = 9000 + (getpid() % 1000)
         (port, sock) = listenany(interface, UInt16(port_hint))
         LPROC.bind_port = port
+        sock
     else
-        sock = listen(interface, LPROC.bind_port)
+        listen(interface, LPROC.bind_port)
     end
-    errormonitor(@async while isopen(sock)
-        client = accept(sock)
-        process_messages(client, client, true)
-    end)
+    let sock = sock
+        errormonitor(@async while isopen(sock)
+            client = accept(sock)
+            process_messages(client, client, true)
+        end)
+    end
     print(out, "julia_worker:")  # print header
     print(out, "$(string(LPROC.bind_port))#") # print port
     print(out, LPROC.bind_addr)
@@ -374,8 +390,7 @@ function init_worker(cookie::AbstractString, manager::ClusterManager=DefaultClus
 
     # On workers, the default cluster manager connects via TCP sockets. Custom
     # transports will need to call this function with their own manager.
-    global cluster_manager
-    cluster_manager = manager
+    cluster_manager[] = manager
 
     # Since our pid has yet to be set, ensure no RemoteChannel / Future  have been created or addprocs() called.
     @assert nprocs() <= 1
@@ -485,19 +500,24 @@ function addprocs_locked(manager::ClusterManager; kwargs...)
     # call manager's `launch` is a separate task. This allows the master
     # process initiate the connection setup process as and when workers come
     # online
+    # NOTE: Must be `@async`. See FIXME above
     t_launch = @async launch(manager, params, launched, launch_ntfy)
 
     @sync begin
         while true
             if isempty(launched)
                 istaskdone(t_launch) && break
-                @async (sleep(1); notify(launch_ntfy))
+                @async begin # NOTE: Must be `@async`. See FIXME above
+                    sleep(1)
+                    notify(launch_ntfy)
+                end
                 wait(launch_ntfy)
             end
 
             if !isempty(launched)
                 wconfig = popfirst!(launched)
                 let wconfig=wconfig
+                    # NOTE: Must be `@async`. See FIXME above
                     @async setup_launched_worker(manager, wconfig, launched_q)
                 end
             end
@@ -550,7 +570,7 @@ function setup_launched_worker(manager, wconfig, launched_q)
     # same type. This is done by setting an appropriate value to `WorkerConfig.cnt`.
     cnt = something(wconfig.count, 1)
     if cnt === :auto
-        cnt = wconfig.environ[:cpu_threads]
+        cnt = (wconfig.environ::AbstractDict)[:cpu_threads]
     end
     cnt = cnt - 1   # Removing self from the requested number
 
@@ -588,26 +608,25 @@ function launch_n_additional_processes(manager, frompid, fromconfig, cnt, launch
     end
 end
 
-function create_worker(manager, wconfig)
+function create_worker(manager::ClusterManager, wconfig::WorkerConfig)
     # only node 1 can add new nodes, since nobody else has the full list of address:port
     @assert LPROC.id == 1
     timeout = worker_timeout()
 
     # initiate a connect. Does not wait for connection completion in case of TCP.
-    w = Worker()
-    local r_s, w_s
-    try
-        (r_s, w_s) = connect(manager, w.id, wconfig)
+    w_stub = Worker()
+    r_s, w_s = try
+        connect(manager, w_stub.id, wconfig)
     catch ex
         try
-            deregister_worker(w.id)
-            kill(manager, w.id, wconfig)
+            deregister_worker(w_stub.id)
+            kill(manager, w_stub.id, wconfig)
         finally
             rethrow(ex)
         end
     end
 
-    w = Worker(w.id, r_s, w_s, manager; config=wconfig)
+    w = Worker(w_stub.id, r_s, w_s, manager; config=wconfig)
     # install a finalizer to perform cleanup if necessary
     finalizer(w) do w
         if myid() == 1
@@ -645,7 +664,12 @@ function create_worker(manager, wconfig)
         # require the value of config.connect_at which is set only upon connection completion
         for jw in PGRP.workers
             if (jw.id != 1) && (jw.id < w.id)
-                (jw.state === W_CREATED) && wait(jw.c_state)
+                # wait for wl to join
+                if (@atomic jw.state) === W_CREATED
+                    lock(jw.c_state) do
+                        wait(jw.c_state)
+                    end
+                end
                 push!(join_list, jw)
             end
         end
@@ -668,7 +692,12 @@ function create_worker(manager, wconfig)
         end
 
         for wl in wlist
-            (wl.state === W_CREATED) && wait(wl.c_state)
+            lock(wl.c_state) do
+                if (@atomic wl.state) === W_CREATED
+                    # wait for wl to join
+                    wait(wl.c_state)
+                end
+            end
             push!(join_list, wl)
         end
     end
@@ -683,11 +712,9 @@ function create_worker(manager, wconfig)
     send_msg_now(w, MsgHeader(RRID(0,0), ntfy_oid), join_message)
 
     @async manage(w.manager, w.id, w.config, :register)
+
     # wait for rr_ntfy_join with timeout
-    timedout = false
-    @async (sleep($timeout); timedout = true; put!(rr_ntfy_join, 1))
-    wait(rr_ntfy_join)
-    if timedout
+    if timedwait(() -> isready(rr_ntfy_join), timeout) === :timed_out
         error("worker did not connect within $timeout seconds")
     end
     lock(client_refs) do
@@ -729,23 +756,21 @@ function redirect_output_from_additional_worker(pid, port)
 end
 
 function check_master_connect()
-    timeout = worker_timeout() * 1e9
     # If we do not have at least process 1 connect to us within timeout
     # we log an error and exit, unless we're running on valgrind
     if ccall(:jl_running_on_valgrind,Cint,()) != 0
         return
     end
-    @async begin
-        start = time_ns()
-        while !haskey(map_pid_wrkr, 1) && (time_ns() - start) < timeout
-            sleep(1.0)
-        end
 
-        if !haskey(map_pid_wrkr, 1)
-            print(stderr, "Master process (id 1) could not connect within $(timeout/1e9) seconds.\nexiting.\n")
-            exit(1)
+    errormonitor(
+        @async begin
+            timeout = worker_timeout()
+            if timedwait(() -> haskey(map_pid_wrkr, 1), timeout) === :timed_out
+                print(stderr, "Master process (id 1) could not connect within $(timeout) seconds.\nexiting.\n")
+                exit(1)
+            end
         end
-    end
+    )
 end
 
 
@@ -870,7 +895,7 @@ function nprocs()
         n = length(PGRP.workers)
         # filter out workers in the process of being setup/shutdown.
         for jw in PGRP.workers
-            if !isa(jw, LocalProcess) && (jw.state !== W_CONNECTED)
+            if !isa(jw, LocalProcess) && ((@atomic jw.state) !== W_CONNECTED)
                 n = n - 1
             end
         end
@@ -921,7 +946,7 @@ julia> procs()
 function procs()
     if myid() == 1 || (PGRP.topology === :all_to_all  && !isclusterlazy())
         # filter out workers in the process of being setup/shutdown.
-        return Int[x.id for x in PGRP.workers if isa(x, LocalProcess) || (x.state === W_CONNECTED)]
+        return Int[x.id for x in PGRP.workers if isa(x, LocalProcess) || ((@atomic x.state) === W_CONNECTED)]
     else
         return Int[x.id for x in PGRP.workers]
     end
@@ -930,7 +955,7 @@ end
 function id_in_procs(id)  # faster version of `id in procs()`
     if myid() == 1 || (PGRP.topology === :all_to_all  && !isclusterlazy())
         for x in PGRP.workers
-            if (x.id::Int) == id && (isa(x, LocalProcess) || (x::Worker).state === W_CONNECTED)
+            if (x.id::Int) == id && (isa(x, LocalProcess) || (@atomic (x::Worker).state) === W_CONNECTED)
                 return true
             end
         end
@@ -952,7 +977,7 @@ Specifically all workers bound to the same ip-address as `pid` are returned.
 """
 function procs(pid::Integer)
     if myid() == 1
-        all_workers = [x for x in PGRP.workers if isa(x, LocalProcess) || (x.state === W_CONNECTED)]
+        all_workers = [x for x in PGRP.workers if isa(x, LocalProcess) || ((@atomic x.state) === W_CONNECTED)]
         if (pid == 1) || (isa(map_pid_wrkr[pid].manager, LocalManager))
             Int[x.id for x in filter(w -> (w.id==1) || (isa(w.manager, LocalManager)), all_workers)]
         else
@@ -1059,11 +1084,11 @@ function _rmprocs(pids, waitfor)
 
         start = time_ns()
         while (time_ns() - start) < waitfor*1e9
-            all(w -> w.state === W_TERMINATED, rmprocset) && break
+            all(w -> (@atomic w.state) === W_TERMINATED, rmprocset) && break
             sleep(min(0.1, waitfor - (time_ns() - start)/1e9))
         end
 
-        unremoved = [wrkr.id for wrkr in filter(w -> w.state !== W_TERMINATED, rmprocset)]
+        unremoved = [wrkr.id for wrkr in filter(w -> (@atomic w.state) !== W_TERMINATED, rmprocset)]
         if length(unremoved) > 0
             estr = string("rmprocs: pids ", unremoved, " not terminated after ", waitfor, " seconds.")
             throw(ErrorException(estr))
@@ -1262,6 +1287,28 @@ function terminate_all_workers()
     end
 end
 
+function choose_bind_addr()
+    # We prefer IPv4 over IPv6.
+    #
+    # We also prefer non-link-local over link-local.
+    # (This is because on HPC clusters, link-local addresses are usually not
+    # usable for communication between compute nodes.
+    #
+    # Therefore, our order of preference is:
+    # 1. Non-link-local IPv4
+    # 2. Non-link-local IPv6
+    # 3. Link-local IPv4
+    # 4. Link-local IPv6
+    addrs = getipaddrs()
+    i = something(
+        findfirst(ip -> !islinklocaladdr(ip) && ip isa IPv4, addrs), # first non-link-local IPv4
+        findfirst(ip -> !islinklocaladdr(ip) && ip isa IPv6, addrs), # first non-link-local IPv6
+        findfirst(ip -> ip isa IPv4, addrs), # first IPv4
+        findfirst(ip -> ip isa IPv6, addrs), # first IPv6
+    )
+    return addrs[i]
+end
+
 # initialize the local proc network address / port
 function init_bind_addr()
     opts = JLOptions()
@@ -1276,7 +1323,7 @@ function init_bind_addr()
     else
         bind_port = 0
         try
-            bind_addr = string(getipaddr())
+            bind_addr = string(choose_bind_addr())
         catch
             # All networking is unavailable, initialize bind_addr to the loopback address
             # Will cause an exception to be raised only when used.
@@ -1290,18 +1337,16 @@ end
 
 using Random: randstring
 
-let inited = false
-    # do initialization that's only needed when there is more than 1 processor
-    global function init_multi()
-        if !inited
-            inited = true
-            push!(Base.package_callbacks, _require_callback)
-            atexit(terminate_all_workers)
-            init_bind_addr()
-            cluster_cookie(randstring(HDR_COOKIE_LEN))
-        end
-        return nothing
+# do initialization that's only needed when there is more than 1 processor
+const inited = Threads.Atomic{Bool}(false)
+function init_multi()
+    if !Threads.atomic_cas!(inited, false, true)
+        push!(Base.package_callbacks, _require_callback)
+        atexit(terminate_all_workers)
+        init_bind_addr()
+        cluster_cookie(randstring(HDR_COOKIE_LEN))
     end
+    return nothing
 end
 
 function init_parallel()

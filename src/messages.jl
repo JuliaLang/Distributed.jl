@@ -102,7 +102,7 @@ end
 function send_msg(s::IO, header, msg)
     id = worker_id_from_socket(s)
     if id > -1
-        return send_msg(worker_from_id(id), header, msg)
+        return send_msg(worker_from_id(id)::Worker, header, msg)
     end
     send_msg_unknown(s, header, msg)
 end
@@ -110,7 +110,7 @@ end
 function send_msg_now(s::IO, header, msg::AbstractMsg)
     id = worker_id_from_socket(s)
     if id > -1
-        return send_msg_now(worker_from_id(id), header, msg)
+        return send_msg_now(worker_from_id(id)::Worker, header, msg)
     end
     send_msg_unknown(s, header, msg)
 end
@@ -194,7 +194,7 @@ end
 function flush_gc_msgs()
     try
         for w in (PGRP::ProcessGroup).workers
-            if isa(w,Worker) && (w.state == W_CONNECTED) && w.gcflag
+            if isa(w,Worker) && ((@atomic w.state) == W_CONNECTED) && w.gcflag
                 flush_gc_msgs(w)
             end
         end
