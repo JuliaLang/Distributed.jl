@@ -289,7 +289,7 @@ function handle_msg(msg::CallMsg{:call_fetch}, header, r_stream, w_stream, versi
             try
                 deliver_result(w_stream, :call_fetch, header.notify_oid, v.v)
             finally
-                unlock(v.rv.synctake)
+                unlock(v.rv.synctake::ReentrantLock)
             end
         else
             deliver_result(w_stream, :call_fetch, header.notify_oid, v)
@@ -315,8 +315,10 @@ function handle_msg(msg::ResultMsg, header, r_stream, w_stream, version)
 end
 
 function handle_msg(msg::IdentifySocketMsg, header, r_stream, w_stream, version)
+    throw_if_cluster_manager_unassigned()
+
     # register a new peer worker connection
-    w = Worker(msg.from_pid, r_stream, w_stream, cluster_manager; version=version)
+    w = Worker(msg.from_pid, r_stream, w_stream, cluster_manager[]; version=version)::Worker
     send_connection_hdr(w, false)
     send_msg_now(w, MsgHeader(), IdentifySocketAckMsg())
     notify(w.initialized)
@@ -328,8 +330,10 @@ function handle_msg(msg::IdentifySocketAckMsg, header, r_stream, w_stream, versi
 end
 
 function handle_msg(msg::JoinPGRPMsg, header, r_stream, w_stream, version)
+    throw_if_cluster_manager_unassigned()
+
     LPROC.id = msg.self_pid
-    controller = Worker(1, r_stream, w_stream, cluster_manager; version=version)
+    controller = Worker(1, r_stream, w_stream, cluster_manager[]; version=version)::Worker
     notify(controller.initialized)
     register_worker(LPROC)
     topology(msg.topology)
@@ -348,9 +352,9 @@ function handle_msg(msg::JoinPGRPMsg, header, r_stream, w_stream, version)
         let rpid=rpid, wconfig=wconfig
             if lazy
                 # The constructor registers the object with a global registry.
-                Worker(rpid, ()->connect_to_peer(cluster_manager, rpid, wconfig))
+                Worker(rpid, ()->connect_to_peer(cluster_manager[], rpid, wconfig))
             else
-                @async connect_to_peer(cluster_manager, rpid, wconfig)
+                @async connect_to_peer(cluster_manager[], rpid, wconfig)
             end
         end
     end
@@ -362,7 +366,7 @@ end
 function connect_to_peer(manager::ClusterManager, rpid::Int, wconfig::WorkerConfig)
     try
         (r_s, w_s) = connect(manager, rpid, wconfig)
-        w = Worker(rpid, r_s, w_s, manager; config=wconfig)
+        w = Worker(rpid, r_s, w_s, manager; config=wconfig)::Worker
         process_messages(w.r_stream, w.w_stream, false)
         send_connection_hdr(w, true)
         send_msg_now(w, MsgHeader(), IdentifySocketMsg(myid()))
