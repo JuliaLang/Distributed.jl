@@ -299,7 +299,7 @@ function default_worker_pool()::AbstractWorkerPool
             _default_worker_pool[] = remotecall_fetch(()->default_worker_pool(), 1)
         end
     end
-    return _default_worker_pool[]
+    return _default_worker_pool[]::AbstractWorkerPool
 end
 
 """
