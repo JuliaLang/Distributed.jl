@@ -21,6 +21,7 @@ Distributed.fetch(::RemoteChannel)
 Distributed.remotecall(::Any, ::Integer, ::Any...)
 Distributed.remotecall_wait(::Any, ::Integer, ::Any...)
 Distributed.remotecall_fetch(::Any, ::Integer, ::Any...)
+Distributed.remotecall_eval
 Distributed.remote_do(::Any, ::Integer, ::Any...)
 Distributed.put!(::RemoteChannel, ::Any...)
 Distributed.put!(::Distributed.Future, ::Any)

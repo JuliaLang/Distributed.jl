@@ -167,10 +167,15 @@ function deserialize_global_from_main(s::ClusterSerializer, sym)
             return nothing
         end
     end
-    Core.eval(Main, Expr(:global, sym))
     if sym_isconst
-        ccall(:jl_set_const, Cvoid, (Any, Any, Any), Main, sym, v)
+        # Note that the post-lowering const form is not allowed in value
+        # position, so there needs to be a dummy `nothing` argument to drop the
+        # return value.
+        Core.eval(Main, Expr(:block,
+            Expr(:const, GlobalRef(Main, sym), v),
+            nothing))
     else
+        Core.eval(Main, Expr(:global, sym))
         invokelatest(setglobal!, Main, sym, v)
     end
     return nothing
