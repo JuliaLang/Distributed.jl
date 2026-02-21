@@ -88,9 +88,6 @@ jobs:
         with:
           version: '1'
           # version: 'nightly'
-      - name: Edit Distributed UUID
-        run: |
-          julia --color=yes -e 'write("Project.toml", replace(read("Project.toml", String), r"uuid = .*?\n" =>"uuid = \"47e2e46d-f89d-539d-b4ee-838fcccc9c8e\"\n"));'
       - run: julia --color=yes --project=ci/jet -e 'import Pkg; Pkg.instantiate()'
       - name: Run the JET tests
         run: julia --color=yes --project=ci/jet ci/jet/check.jl
