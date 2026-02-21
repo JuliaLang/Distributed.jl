@@ -749,7 +749,8 @@ function kill(manager::LocalManager, pid::Int, config::WorkerConfig; profile_wai
         sleep(exit_timeout)
 
         # Check to see if our child exited, and if not, send an actual kill signal
-        if !process_exited(config.process::Process)
+        process = config.process::Process
+        if !process_exited(process)
             @warn "Failed to gracefully kill worker $(pid)"
             profile_sig = Sys.iswindows() ? nothing : Sys.isbsd() ? ("SIGINFO", 29) : ("SIGUSR1" , 10)
             if profile_sig !== nothing
