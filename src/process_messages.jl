@@ -64,7 +64,7 @@ function showerror(io::IO, re::RemoteException)
     showerror(io, re.captured)
 end
 
-function run_work_thunk(thunk::Function, print_error::Bool)
+function run_work_thunk(thunk::Base.Callable, print_error::Bool)
     local result
     try
         result = thunk()
