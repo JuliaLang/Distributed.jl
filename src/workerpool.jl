@@ -288,7 +288,7 @@ julia> default_worker_pool()
 WorkerPool(Channel{Int64}(sz_max:9223372036854775807,sz_curr:3), Set([4, 2, 3]), RemoteChannel{Channel{Any}}(1, 1, 4))
 ```
 """
-function default_worker_pool()
+function default_worker_pool()::AbstractWorkerPool
     # On workers retrieve the default worker pool from the master when accessed
     # for the first time
     if _default_worker_pool[] === nothing
@@ -298,7 +298,7 @@ function default_worker_pool()
             _default_worker_pool[] = remotecall_fetch(()->default_worker_pool(), 1)
         end
     end
-    return _default_worker_pool[]
+    return _default_worker_pool[]::AbstractWorkerPool
 end
 
 """
