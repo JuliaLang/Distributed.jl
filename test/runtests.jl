@@ -20,3 +20,4 @@ disttestfile = joinpath(@__DIR__, "distributed_exec.jl")
 end
 
 include("managers.jl")
+include("persistent_workers.jl")
