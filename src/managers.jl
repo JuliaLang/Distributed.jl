@@ -326,7 +326,7 @@ function launch_on_machine(manager::SSHManager, machine::AbstractString, cnt, pa
 
         any(c -> c == '"', exename) && throw(ArgumentError("invalid exename"))
 
-        remotecmd = shell_escape_wincmd(escape_microsoft_c_args(exename, exeflags...))
+        remotecmd = shell_escape_wincmd(escape_microsoft_c_args(exename, exeflags...)::AbstractString)
         # change working directory
         if dir !== nothing && dir != ""
             any(c -> c == '"', dir) && throw(ArgumentError("invalid dir"))
@@ -585,7 +585,7 @@ function connect(manager::ClusterManager, pid::Int, config::WorkerConfig)
 
     # master connecting to workers
     if config.io !== nothing
-        (bind_addr, port::Int) = read_worker_host_port(config.io)
+        (bind_addr, port::Int) = read_worker_host_port(config.io::IO)
         pubhost = something(config.host, bind_addr)
         config.host = pubhost
         config.port = port

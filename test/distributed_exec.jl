@@ -347,9 +347,12 @@ test_indexing(RemoteChannel(id_other))
 # Test ser/deser to non-ClusterSerializer objects.
 function test_regular_io_ser(ref::Distributed.AbstractRemoteRef)
     io = IOBuffer()
-    serialize(io, ref)
+    # Wrapping the ref in a Dict to exercise the case when the the
+    # type parameter of the RemoteChannel is part of an outer type.
+    # See #178
+    serialize(io, Dict("ref" => ref))
     seekstart(io)
-    ref2 = deserialize(io)
+    ref2 = deserialize(io)["ref"]
     for fld in fieldnames(typeof(ref))
         v = getfield(ref2, fld)
         if isa(v, Number)
@@ -365,6 +368,7 @@ end
 
 test_regular_io_ser(Future())
 test_regular_io_ser(RemoteChannel())
+test_regular_io_ser(RemoteChannel(() -> Channel{Bool}(1)))
 
 # Test @distributed load balancing - all processors should get either M or M+1
 # iterations out of the loop range for some M.
@@ -1856,7 +1860,8 @@ let julia = `$(Base.julia_cmd()) --startup-file=no`; mktempdir() do tmp
     project = mkdir(joinpath(tmp, "project"))
     depots = [mkdir(joinpath(tmp, "depot1")), mkdir(joinpath(tmp, "depot2"))]
     load_path = [mkdir(joinpath(tmp, "load_path")), "@stdlib", "@"]
-    shipped_depots = DEPOT_PATH[2:end] # stdlib caches
+    shipped_depots = String[] # stdlib caches
+    Base.append_bundled_depot_path!(shipped_depots)
 
     env = Dict(
         # needs a trailing pathsep to access the stdlib depot

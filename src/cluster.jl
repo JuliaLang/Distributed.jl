@@ -9,6 +9,14 @@ Cluster managers implement how workers can be added, removed and communicated wi
 """
 abstract type ClusterManager end
 
+# cluster_manager is a global constant
+const cluster_manager = Ref{ClusterManager}()
+
+function throw_if_cluster_manager_unassigned()
+    isassigned(cluster_manager) || error("cluster_manager is unassigned")
+    return nothing
+end
+
 """
     WorkerConfig
 
@@ -245,17 +253,20 @@ function start_worker(out::IO, cookie::AbstractString=readline(stdin); close_std
 
     init_worker(cookie)
     interface = IPv4(LPROC.bind_addr)
-    if LPROC.bind_port == 0
+    sock = if LPROC.bind_port == 0
         port_hint = 9000 + (getpid() % 1000)
         (port, sock) = listenany(interface, UInt16(port_hint))
         LPROC.bind_port = port
+        sock
     else
-        sock = listen(interface, LPROC.bind_port)
+        listen(interface, LPROC.bind_port)
     end
-    errormonitor(@async while isopen(sock)
-        client = accept(sock)
-        process_messages(client, client, true)
-    end)
+    let sock = sock
+        errormonitor(@async while isopen(sock)
+            client = accept(sock)
+            process_messages(client, client, true)
+        end)
+    end
     print(out, "julia_worker:")  # print header
     print(out, "$(string(LPROC.bind_port))#") # print port
     print(out, LPROC.bind_addr)
@@ -379,8 +390,7 @@ function init_worker(cookie::AbstractString, manager::ClusterManager=DefaultClus
 
     # On workers, the default cluster manager connects via TCP sockets. Custom
     # transports will need to call this function with their own manager.
-    global cluster_manager
-    cluster_manager = manager
+    cluster_manager[] = manager
 
     # Since our pid has yet to be set, ensure no RemoteChannel / Future  have been created or addprocs() called.
     @assert nprocs() <= 1
@@ -560,7 +570,7 @@ function setup_launched_worker(manager, wconfig, launched_q)
     # same type. This is done by setting an appropriate value to `WorkerConfig.cnt`.
     cnt = something(wconfig.count, 1)
     if cnt === :auto
-        cnt = wconfig.environ[:cpu_threads]
+        cnt = (wconfig.environ::AbstractDict)[:cpu_threads]
     end
     cnt = cnt - 1   # Removing self from the requested number
 
@@ -598,26 +608,25 @@ function launch_n_additional_processes(manager, frompid, fromconfig, cnt, launch
     end
 end
 
-function create_worker(manager, wconfig)
+function create_worker(manager::ClusterManager, wconfig::WorkerConfig)
     # only node 1 can add new nodes, since nobody else has the full list of address:port
     @assert LPROC.id == 1
     timeout = worker_timeout()
 
     # initiate a connect. Does not wait for connection completion in case of TCP.
-    w = Worker()
-    local r_s, w_s
-    try
-        (r_s, w_s) = connect(manager, w.id, wconfig)
+    w_stub = Worker()
+    r_s, w_s = try
+        connect(manager, w_stub.id, wconfig)
     catch ex
         try
-            deregister_worker(w.id)
-            kill(manager, w.id, wconfig)
+            deregister_worker(w_stub.id)
+            kill(manager, w_stub.id, wconfig)
         finally
             rethrow(ex)
         end
     end
 
-    w = Worker(w.id, r_s, w_s, manager; config=wconfig)
+    w = Worker(w_stub.id, r_s, w_s, manager; config=wconfig)
     # install a finalizer to perform cleanup if necessary
     finalizer(w) do w
         if myid() == 1
@@ -1278,6 +1287,28 @@ function terminate_all_workers()
     end
 end
 
+function choose_bind_addr()
+    # We prefer IPv4 over IPv6.
+    #
+    # We also prefer non-link-local over link-local.
+    # (This is because on HPC clusters, link-local addresses are usually not
+    # usable for communication between compute nodes.
+    #
+    # Therefore, our order of preference is:
+    # 1. Non-link-local IPv4
+    # 2. Non-link-local IPv6
+    # 3. Link-local IPv4
+    # 4. Link-local IPv6
+    addrs = getipaddrs()
+    i = something(
+        findfirst(ip -> !islinklocaladdr(ip) && ip isa IPv4, addrs), # first non-link-local IPv4
+        findfirst(ip -> !islinklocaladdr(ip) && ip isa IPv6, addrs), # first non-link-local IPv6
+        findfirst(ip -> ip isa IPv4, addrs), # first IPv4
+        findfirst(ip -> ip isa IPv6, addrs), # first IPv6
+    )
+    return addrs[i]
+end
+
 # initialize the local proc network address / port
 function init_bind_addr()
     opts = JLOptions()
@@ -1292,7 +1323,7 @@ function init_bind_addr()
     else
         bind_port = 0
         try
-            bind_addr = string(getipaddr())
+            bind_addr = string(choose_bind_addr())
         catch
             # All networking is unavailable, initialize bind_addr to the loopback address
             # Will cause an exception to be raised only when used.

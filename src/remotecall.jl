@@ -413,8 +413,8 @@ function serialize(s::AbstractSerializer, ::Future)
     invoke(serialize, Tuple{AbstractSerializer, Any}, s, zero_fut)
 end
 
-function serialize(s::AbstractSerializer, ::RemoteChannel)
-    zero_rc = RemoteChannel{Channel{Any}}((0,0,0))
+function serialize(s::AbstractSerializer, ::RemoteChannel{T}) where T
+    zero_rc = RemoteChannel{T}((0,0,0))
     invoke(serialize, Tuple{AbstractSerializer, Any}, s, zero_rc)
 end
 
@@ -706,8 +706,8 @@ function put_ref(rid, caller, args...)
     put!(rv, args...)
     if myid() == caller && rv.synctake !== nothing
         # Wait till a "taken" value is serialized out - github issue #29932
-        lock(rv.synctake)
-        unlock(rv.synctake)
+        lock(rv.synctake::ReentrantLock)
+        unlock(rv.synctake::ReentrantLock)
     end
     nothing
 end
@@ -731,7 +731,7 @@ function take_ref(rid, caller, args...)
         # special handling for local put! / remote take! on unbuffered channel
         # github issue #29932
         synctake = true
-        lock(rv.synctake)
+        lock(rv.synctake::ReentrantLock)
     end
 
     v = try
@@ -739,7 +739,7 @@ function take_ref(rid, caller, args...)
     catch e
         # avoid unmatched unlock when exception occurs
         # github issue #33972
-        synctake && unlock(rv.synctake)
+        synctake && unlock(rv.synctake::ReentrantLock)
         rethrow(e)
     end
 
