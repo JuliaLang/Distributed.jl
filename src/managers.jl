@@ -526,7 +526,7 @@ end
 
 function manage(manager::LocalManager, id::Integer, config::WorkerConfig, op::Symbol)
     if op === :interrupt
-        kill(config.process, 2)
+        kill(config.process::Process, 2)
     end
 end
 
@@ -749,21 +749,22 @@ function kill(manager::LocalManager, pid::Int, config::WorkerConfig; profile_wai
         sleep(exit_timeout)
 
         # Check to see if our child exited, and if not, send an actual kill signal
-        if !process_exited(config.process)
+        process = config.process::Process
+        if !process_exited(process)
             @warn "Failed to gracefully kill worker $(pid)"
             profile_sig = Sys.iswindows() ? nothing : Sys.isbsd() ? ("SIGINFO", 29) : ("SIGUSR1" , 10)
             if profile_sig !== nothing
                 @warn("Sending profile $(profile_sig[1]) to worker $(pid)")
-                kill(config.process, profile_sig[2])
+                kill(process, profile_sig[2])
                 sleep(profile_wait)
             end
             @warn("Sending SIGQUIT to worker $(pid)")
-            kill(config.process, Base.SIGQUIT)
+            kill(process, Base.SIGQUIT)
 
             sleep(term_timeout)
-            if !process_exited(config.process)
+            if !process_exited(process)
                 @warn("Worker $(pid) ignored SIGQUIT, sending SIGKILL")
-                kill(config.process, Base.SIGKILL)
+                kill(process, Base.SIGKILL)
             end
         end
     end
