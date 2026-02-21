@@ -333,6 +333,7 @@ completion. To wait for completion, prefix the call with [`@sync`](@ref), like :
 macro distributed(args...)
     na = length(args)
     if na==1
+        reducer = identity
         loop = args[1]
     elseif na==2
         reducer = args[1]
