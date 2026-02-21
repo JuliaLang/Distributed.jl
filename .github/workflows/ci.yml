@@ -91,4 +91,4 @@ jobs:
       - uses: julia-actions/cache@v2
       - run: julia --color=yes --project=ci/jet -e 'import Pkg; Pkg.instantiate()'
       - name: Run the JET tests
-        run: julia --color=yes --project=ci/jet ci/jet/check.jl
+        run: julia --color=yes -t4 --project=ci/jet ci/jet/check.jl
