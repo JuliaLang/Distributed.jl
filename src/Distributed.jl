@@ -21,6 +21,7 @@ using Base.Threads: Event
 using Serialization, Sockets
 import Serialization: serialize, deserialize
 import Sockets: connect, wait_connected
+import Logging
 
 # NOTE: clusterserialize.jl imports additional symbols from Serialization for use
 
@@ -61,6 +62,7 @@ export
     WorkerConfig,
     RemoteException,
     ProcessExitedException,
+    RemoteLogger,
 
     process_messages,
     remoteref_id,
@@ -108,6 +110,7 @@ include("messages.jl")
 include("process_messages.jl")  # process incoming messages
 include("remotecall.jl")  # the remotecall* api
 include("macros.jl")      # @spawn and friends
+include("logger.jl")
 include("workerpool.jl")
 include("pmap.jl")
 include("managers.jl")    # LocalManager and SSHManager

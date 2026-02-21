@@ -49,6 +49,7 @@ Distributed.channel_from_id
 Distributed.worker_id_from_socket
 Distributed.cluster_cookie()
 Distributed.cluster_cookie(::Any)
+Distributed.RemoteLogger
 ```
 
 ## Cluster Manager Interface
