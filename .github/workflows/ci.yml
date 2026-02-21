@@ -86,7 +86,7 @@ jobs:
             persist-credentials: false
       - uses: julia-actions/setup-julia@latest
         with:
-          version: '1.12'
+          version: '1'
           # version: 'nightly'
       - name: Edit Distributed UUID
         run: |
