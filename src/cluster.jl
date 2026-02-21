@@ -626,7 +626,7 @@ function create_worker(manager::ClusterManager, wconfig::WorkerConfig)
         end
     end
 
-    w = Worker(w_stub.id, r_s, w_s, manager; config=wconfig)
+    w = Worker(w_stub.id, r_s, w_s, manager; config=wconfig)::Worker
     # install a finalizer to perform cleanup if necessary
     finalizer(w) do w
         if myid() == 1
