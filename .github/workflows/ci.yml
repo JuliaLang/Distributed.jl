@@ -49,7 +49,7 @@ jobs:
         with:
           version: ${{ matrix.version }}
           arch: ${{ matrix.arch }}
-      - uses: julia-actions/cache@v2
+      - uses: julia-actions/cache@v3
       - uses: julia-actions/julia-runtest@v1
         env:
           JULIA_DISTRIBUTED_TESTING_STANDALONE: 1
@@ -88,7 +88,7 @@ jobs:
         with:
           version: '1'
           # version: 'nightly'
-      - uses: julia-actions/cache@v2
+      - uses: julia-actions/cache@v3
       - run: julia --color=yes --project=ci/jet -e 'import Pkg; Pkg.instantiate()'
       - name: Run the JET tests
         run: julia --color=yes -t4 --project=ci/jet ci/jet/check.jl
