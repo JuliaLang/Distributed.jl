@@ -1337,12 +1337,26 @@ end
 
 using Random: randstring
 
+# Exit handler state
+const shutting_down = Threads.Atomic{Bool}(false)
+
+function atexit_handler()
+    if inited[]
+        terminate_all_workers()
+    end
+
+    shutting_down[] = true
+    @lock any_gc_flag notify(any_gc_flag)
+    if !isnothing(gc_msgs_task)
+        wait(gc_msgs_task::Task)
+    end
+end
+
 # do initialization that's only needed when there is more than 1 processor
 const inited = Threads.Atomic{Bool}(false)
 function init_multi()
     if !Threads.atomic_cas!(inited, false, true)
         push!(Base.package_callbacks, _require_callback)
-        atexit(terminate_all_workers)
         init_bind_addr()
         cluster_cookie(randstring(HDR_COOKIE_LEN))
     end
@@ -1350,6 +1364,7 @@ function init_multi()
 end
 
 function init_parallel()
+    atexit(atexit_handler)
     start_gc_msgs_task()
 
     # start in "head node" mode, if worker, will override later.
