@@ -272,10 +272,12 @@ end
 # XXX: Is this worth the additional complexity?
 #      `flush_gc_msgs` has to iterate over all connected workers.
 const any_gc_flag = Threads.Condition()
+gc_msgs_task::Union{Task, Nothing} = nothing
+
 function start_gc_msgs_task()
-    errormonitor(
+    global gc_msgs_task = errormonitor(
         @async begin
-            while true
+            while !shutting_down[]
                 lock(any_gc_flag) do
                     # this might miss events
                     wait(any_gc_flag)
