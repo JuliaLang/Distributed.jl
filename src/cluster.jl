@@ -1275,7 +1275,12 @@ function terminate_all_workers()
         try
             rmprocs(workers(); waitfor=5.0)
         catch _ex
-            @warn "Forcibly interrupting busy workers" exception=_ex
+            if _ex isa ErrorException
+                @warn "Forcibly interrupting busy workers" exception=_ex
+            else
+                @error "Unexpected error when interrupting busy workers" exception=(_ex, catch_backtrace())
+            end
+
             # Might be computation bound, interrupt them and try again
             interrupt(workers())
             try
