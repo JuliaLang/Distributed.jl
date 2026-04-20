@@ -252,7 +252,7 @@ function start_worker(out::IO, cookie::AbstractString=readline(stdin); close_std
     stderr_to_stdout && redirect_stderr(stdout)
 
     init_worker(cookie)
-    interface = IPv4(LPROC.bind_addr)
+    interface = parse(IPAddr, LPROC.bind_addr)
     sock = if LPROC.bind_port == 0
         port_hint = 9000 + (getpid() % 1000)
         (port, sock) = listenany(interface, UInt16(port_hint))
