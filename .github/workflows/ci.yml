@@ -42,7 +42,7 @@ jobs:
           - os: macOS-latest
             arch: x86
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
             persist-credentials: false
       - uses: julia-actions/setup-julia@v3
@@ -63,7 +63,7 @@ jobs:
   docs:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
             persist-credentials: false
       - uses: julia-actions/setup-julia@latest
@@ -81,7 +81,7 @@ jobs:
   jet:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
             persist-credentials: false
       - uses: julia-actions/setup-julia@latest
