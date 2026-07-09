@@ -80,6 +80,73 @@ function run_work_thunk_remotevalue(rv::RemoteValue, thunk)
     nothing
 end
 
+## Interrupting remotely-submitted work
+#
+# `interrupt(pid)` delivers SIGINT to the worker process, which cancels the
+# process's current ^C-episode cancellation source. A worker has no REPL to
+# scope that episode to a work item, so it manages the episode around the
+# remotely-submitted work instead: while at least one remote request is
+# executing, an episode source is installed and every request thunk runs in
+# its scope, so a SIGINT cancels exactly the in-flight requests (each failing
+# with a `RemoteException` wrapping the `CancellationRequest`); when the last
+# request completes, the episode is closed again, making a SIGINT of an idle
+# worker a no-op. Everything else - in particular the message-serving
+# infrastructure and the delivery of the responses (which must not be aborted
+# by the level-triggered cancellation of the request it reports) - runs
+# outside the scope.
+const _interrupt_scope_lock = ReentrantLock()
+const _interrupt_scope_refcount = Ref(0)
+const _interrupt_scope_token = Ref{Union{Base.CancellationToken, Nothing}}(nothing)
+
+function _interrupt_scope_enter()
+    lock(_interrupt_scope_lock)
+    try
+        tok = _interrupt_scope_token[]
+        # Arm on the first request, and re-arm after a ^C consumed the
+        # previous source (work still unwinding stays governed by - and
+        # detached with - the consumed source, like the REPL's
+        # per-evaluation re-arm).
+        if tok === nothing || Base.sigint_active_severity(tok.source) !== nothing
+            tok = Base.sigint_new_episode!()
+            _interrupt_scope_token[] = tok
+        end
+        # The foreground-task fallback carries the delivery to code without a
+        # published token binding (e.g. an interpreted top-level loop). Only
+        # one request can be the fallback target - point it at the most
+        # recent one (delivery to the others works through their token
+        # registrations and bindings).
+        Base._sigint_foreground_task[] = current_task()
+        _interrupt_scope_refcount[] += 1
+        return tok
+    finally
+        unlock(_interrupt_scope_lock)
+    end
+end
+
+function _interrupt_scope_exit()
+    lock(_interrupt_scope_lock)
+    try
+        if (_interrupt_scope_refcount[] -= 1) == 0
+            _interrupt_scope_token[] = nothing
+            Base.sigint_close_episode!()
+        end
+    finally
+        unlock(_interrupt_scope_lock)
+    end
+end
+
+function run_under_interrupt_scope(f)
+    # On the master the ^C episode belongs to the interactive session; only
+    # workers scope it to remotely-submitted work.
+    myid() == 1 && return f()
+    tok = _interrupt_scope_enter()
+    try
+        return Base.ScopedValues.with(f, Base.CANCEL_TOKEN => tok)
+    finally
+        _interrupt_scope_exit()
+    end
+end
+
 function schedule_call(rid, thunk)
     return lock(client_refs) do
         rv = RemoteValue(def_rv_channel())
@@ -280,11 +347,11 @@ function process_hdr(s, validate_cookie)
 end
 
 function handle_msg(msg::CallMsg{:call}, header, r_stream, w_stream, version)
-    schedule_call(header.response_oid, ()->invokelatest(msg.f, msg.args...; msg.kwargs...))
+    schedule_call(header.response_oid, ()->run_under_interrupt_scope(()->invokelatest(msg.f, msg.args...; msg.kwargs...)))
 end
 function handle_msg(msg::CallMsg{:call_fetch}, header, r_stream, w_stream, version)
     errormonitor(@async begin
-        v = run_work_thunk(()->invokelatest(msg.f, msg.args...; msg.kwargs...), false)
+        v = run_work_thunk(()->run_under_interrupt_scope(()->invokelatest(msg.f, msg.args...; msg.kwargs...)), false)
         if isa(v, SyncTake)
             try
                 deliver_result(w_stream, :call_fetch, header.notify_oid, v.v)
@@ -300,14 +367,14 @@ end
 
 function handle_msg(msg::CallWaitMsg, header, r_stream, w_stream, version)
     errormonitor(@async begin
-        rv = schedule_call(header.response_oid, ()->invokelatest(msg.f, msg.args...; msg.kwargs...))
+        rv = schedule_call(header.response_oid, ()->run_under_interrupt_scope(()->invokelatest(msg.f, msg.args...; msg.kwargs...)))
         deliver_result(w_stream, :call_wait, header.notify_oid, fetch(rv.c))
         nothing
     end)
 end
 
 function handle_msg(msg::RemoteDoMsg, header, r_stream, w_stream, version)
-    errormonitor(@async run_work_thunk(()->invokelatest(msg.f, msg.args...; msg.kwargs...), true))
+    errormonitor(@async run_work_thunk(()->run_under_interrupt_scope(()->invokelatest(msg.f, msg.args...; msg.kwargs...)), true))
 end
 
 function handle_msg(msg::ResultMsg, header, r_stream, w_stream, version)
