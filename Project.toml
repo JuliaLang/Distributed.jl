@@ -1,6 +1,6 @@
 name = "Distributed"
 uuid = "8ba89e20-285c-5b6f-9357-94700520ee1b"
-version = "1.11.0"
+version = "1.12.0"
 
 [deps]
 Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
@@ -14,7 +14,7 @@ Random = "1"
 Serialization = "1"
 Sockets = "1"
 Test = "1"
-julia = "1"
+julia = "1.14"
 
 [extras]
 Aqua = "4c88cf16-eb10-579e-8560-4a9242c79595"
