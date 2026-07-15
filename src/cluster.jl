@@ -388,6 +388,14 @@ process as a worker using TCP/IP sockets for transport.
 function init_worker(cookie::AbstractString, manager::ClusterManager=DefaultClusterManager())
     myrole!(:worker)
 
+    # Detach the process's startup ^C episode: it covers the worker's
+    # toplevel, and everything spawned from it inherits its scope - including
+    # the message-serving infrastructure, which must survive an
+    # `interrupt(pid)`. The episode is instead managed around the
+    # remotely-submitted work (see `run_under_interrupt_scope`), and a SIGINT
+    # while no request is executing is ignored.
+    Base.sigint_close_episode!()
+
     # On workers, the default cluster manager connects via TCP sockets. Custom
     # transports will need to call this function with their own manager.
     cluster_manager[] = manager
