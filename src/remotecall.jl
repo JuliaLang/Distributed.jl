@@ -310,7 +310,7 @@ function send_del_client_no_lock(rr)
 end
 
 function publish_del_msg!(w::Worker, msg)
-    lock(w.msg_lock) do
+    @lock w.msg_lock begin
         push!(w.del_msgs, msg)
         @atomic w.gcflag = true
     end
@@ -354,7 +354,7 @@ function send_add_client(rr::AbstractRemoteRef, i)
         # to the processor that owns the remote ref. it will add_client
         # itself inside deserialize().
         w = worker_from_id(rr.where)
-        lock(w.msg_lock) do
+        @lock w.msg_lock begin
             push!(w.add_msgs, (remoteref_id(rr), i))
             @atomic w.gcflag = true
         end
