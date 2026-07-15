@@ -103,14 +103,15 @@ end
 @enum WorkerState W_CREATED W_CONNECTED W_TERMINATING W_TERMINATED W_UNKNOWN_STATE
 mutable struct Worker
     id::Int
-    msg_lock::Threads.ReentrantLock # Lock for del_msgs, add_msgs, and gcflag
+    msg_lock::ReentrantLock # guards `del_msgs`, `add_msgs`, and `gcflag`
     del_msgs::Array{Any,1} # XXX: Could del_msgs and add_msgs be Channels?
     add_msgs::Array{Any,1}
     @atomic gcflag::Bool
+    # `state` changes are published via the module-global `worker_state_cond`;
+    # wait on that (re-checking this atomic) rather than a per-worker condition
     @atomic state::WorkerState
-    c_state::Threads.Condition # wait for state changes, lock for state
-    ct_time::Float64           # creation time
-    conn_func::Any             # used to setup connections lazily
+    ct_time::Float64        # creation time
+    conn_func::Any          # used to setup connections lazily
 
     r_stream::IO
     w_stream::IO
@@ -142,7 +143,7 @@ mutable struct Worker
         if haskey(map_pid_wrkr, id)
             return map_pid_wrkr[id]
         end
-        w=new(id, Threads.ReentrantLock(), [], [], false, W_CREATED, Threads.Condition(), time(), conn_func)
+        w=new(id, ReentrantLock(), [], [], false, W_CREATED, time(), conn_func)
         w.initialized = Event()
         register_worker(w)
         w
@@ -152,10 +153,10 @@ mutable struct Worker
 end
 
 function set_worker_state(w, state)
-    lock(w.c_state) do
-        @atomic w.state = state
-        notify(w.c_state; all=true)
-    end
+    @atomic w.state = state
+    # Wake every task waiting on worker state/membership: `wait_for_conn`,
+    # topology setup in `create_worker`, `_rmprocs`, `check_master_connect`, etc.
+    @lock worker_state_cond notify(worker_state_cond; all=true)
 end
 
 function check_worker_state(w::Worker)
@@ -202,10 +203,14 @@ function wait_for_conn(w)
         timeout =  worker_timeout() - (time() - w.ct_time)
         timeout <= 0 && error("peer $(w.id) has not connected to $(myid())")
 
-        if timedwait(() -> (@atomic w.state) === W_CONNECTED, timeout) === :timed_out
-            # Notify any waiters on the state and throw
-            @lock w.c_state notify(w.c_state)
-            error("peer $(w.id) didn't connect to $(myid()) within $timeout seconds")
+        deadline = time_ns() + timeout * 1e9
+        @lock worker_state_cond begin
+            while (@atomic w.state) !== W_CONNECTED
+                wait_or_deadline(worker_state_cond, deadline) || break
+            end
+            if (@atomic w.state) !== W_CONNECTED
+                error("peer $(w.id) didn't connect to $(myid()) within $(worker_timeout()) seconds")
+            end
         end
     end
     nothing
@@ -222,6 +227,32 @@ mutable struct LocalProcess
 end
 
 worker_timeout() = parse(Float64, get(ENV, "JULIA_WORKER_TIMEOUT", "60.0"))
+
+# Wait for `notify` on the `Threads.Condition`. Triggers its own notification
+# when the absolute `deadline` (nanoseconds on the `time_ns()` clock; `Inf`
+# waits forever) arrives.
+#
+# Return `false` once the deadline has passed (so callers can
+# `wait_or_deadline(...) || break`) and `true` otherwise. The deadline causes
+# spurious wakeups for other waiters, so callers must re-check their own
+# condition in a loop.
+function wait_or_deadline(c::Threads.Condition, deadline::Real)
+    remaining = (deadline - time_ns()) / 1e9
+    if !isfinite(remaining)
+        wait(c)
+        return true
+    end
+    remaining <= 0 && return false
+    timer = Timer(remaining) do _
+        @lock c notify(c; all=true)
+    end
+    try
+        wait(c)
+    finally
+        close(timer)
+    end
+    return true
+end
 
 
 ## worker creation and setup ##
@@ -323,7 +354,7 @@ function read_worker_host_port(io::IO)
 
     # Wait at most for JULIA_WORKER_TIMEOUT seconds to read host:port
     # info from the worker
-    timeout = worker_timeout() * 1e9
+    deadline = t0 + worker_timeout() * 1e9
     # We expect the first line to contain the host:port string. However, as
     # the worker may be launched via ssh or a cluster manager like SLURM,
     # ignore any informational / warning lines printed by the launch command.
@@ -332,12 +363,20 @@ function read_worker_host_port(io::IO)
 
     ntries = 1000
     leader = String[]
+    # notified when a spawned `readline` task finishes, so we can wait for a line
+    # to arrive (or the overall timeout to elapse) without polling
+    readcond = Threads.Condition()
     try
         while ntries > 0
-            readtask = @async readline(io)
-            yield()
-            while !istaskdone(readtask) && ((time_ns() - t0) < timeout)
-                sleep(0.05)
+            readtask = @async try
+                readline(io)
+            finally
+                @lock readcond notify(readcond; all=true)
+            end
+            @lock readcond begin
+                while !istaskdone(readtask)
+                    wait_or_deadline(readcond, deadline) || break
+                end
             end
             !istaskdone(readtask) && break
 
@@ -665,9 +704,9 @@ function create_worker(manager::ClusterManager, wconfig::WorkerConfig)
         for jw in PGRP.workers
             if (jw.id != 1) && (jw.id < w.id)
                 # wait for wl to join
-                if (@atomic jw.state) === W_CREATED
-                    lock(jw.c_state) do
-                        wait(jw.c_state)
+                @lock worker_state_cond begin
+                    while (@atomic jw.state) === W_CREATED
+                        wait(worker_state_cond)
                     end
                 end
                 push!(join_list, jw)
@@ -679,23 +718,27 @@ function create_worker(manager::ClusterManager, wconfig::WorkerConfig)
         filterfunc(x) = (x.id != 1) && isdefined(x, :config) &&
             (notnothing(x.config.ident) in something(wconfig.connect_idents, []))
 
-        wlist = filter(filterfunc, PGRP.workers)
-        waittime = 0
-        while wconfig.connect_idents !== nothing &&
-              length(wlist) < length(wconfig.connect_idents)
-            if waittime >= timeout
-                error("peer workers did not connect within $timeout seconds")
+        deadline = time_ns() + timeout * 1e9
+        # Recompute `wlist` under the lock before each wait so we never miss a
+        # `register_worker` notification that races with the filter (a lost
+        # wakeup would stall this until the deadline).
+        local wlist
+        @lock worker_state_cond begin
+            while true
+                wlist = filter(filterfunc, PGRP.workers)
+                (wconfig.connect_idents === nothing ||
+                    length(wlist) >= length(wconfig.connect_idents)) && break
+                if !wait_or_deadline(worker_state_cond, deadline)
+                    error("peer workers did not connect within $timeout seconds")
+                end
             end
-            sleep(1.0)
-            waittime += 1
-            wlist = filter(filterfunc, PGRP.workers)
         end
 
         for wl in wlist
-            lock(wl.c_state) do
-                if (@atomic wl.state) === W_CREATED
+            @lock worker_state_cond begin
+                while (@atomic wl.state) === W_CREATED
                     # wait for wl to join
-                    wait(wl.c_state)
+                    wait(worker_state_cond)
                 end
             end
             push!(join_list, wl)
@@ -761,12 +804,18 @@ function check_master_connect()
     if ccall(:jl_running_on_valgrind,Cint,()) != 0
         return
     end
-
     errormonitor(
         @async begin
-            timeout = worker_timeout()
-            if timedwait(() -> haskey(map_pid_wrkr, 1), timeout) === :timed_out
-                print(stderr, "Master process (id 1) could not connect within $(timeout) seconds.\nexiting.\n")
+            timeout = worker_timeout() * 1e9
+            deadline = time_ns() + timeout
+            @lock worker_state_cond begin
+                while !haskey(map_pid_wrkr, 1)
+                    wait_or_deadline(worker_state_cond, deadline) || break
+                end
+            end
+
+            if !haskey(map_pid_wrkr, 1)
+                print(stderr, "Master process (id 1) could not connect within $(timeout/1e9) seconds.\nexiting.\n")
                 exit(1)
             end
         end
@@ -848,6 +897,11 @@ const LPROCROLE = Ref{Symbol}(:master)
 const HDR_VERSION_LEN=16
 const HDR_COOKIE_LEN=16
 const map_pid_wrkr = Dict{Int, Union{Worker, LocalProcess}}()
+# Notified whenever a worker is registered (added to `map_pid_wrkr`/`PGRP.workers`)
+# or changes state (via `set_worker_state`), so tasks can wait for peers or the
+# master to join the cluster. The lock guards reads/writes of the membership
+# collections done under it.
+const worker_state_cond = Threads.Condition()
 const map_sock_wrkr = IdDict()
 const map_del_wrkr = Set{Int}()
 
@@ -1082,10 +1136,15 @@ function _rmprocs(pids, waitfor)
             end
         end
 
-        start = time_ns()
-        while (time_ns() - start) < waitfor*1e9
-            all(w -> (@atomic w.state) === W_TERMINATED, rmprocset) && break
-            sleep(min(0.1, waitfor - (time_ns() - start)/1e9))
+        # `waitfor == typemax(Int)` means wait indefinitely; otherwise bound the
+        # total wait across all workers by a single shared deadline
+        deadline = waitfor == typemax(Int) ? Inf : time_ns() + waitfor * 1e9
+        for w in rmprocset
+            @lock worker_state_cond begin
+                while (@atomic w.state) !== W_TERMINATED
+                    wait_or_deadline(worker_state_cond, deadline) || break
+                end
+            end
         end
 
         unremoved = [wrkr.id for wrkr in filter(w -> (@atomic w.state) !== W_TERMINATED, rmprocset)]
@@ -1155,8 +1214,11 @@ end
 
 register_worker(w) = register_worker(PGRP, w)
 function register_worker(pg, w)
-    push!(pg.workers, w)
-    map_pid_wrkr[w.id] = w
+    @lock worker_state_cond begin
+        push!(pg.workers, w)
+        map_pid_wrkr[w.id] = w
+        notify(worker_state_cond; all=true)
+    end
 end
 
 function register_worker_streams(w)
