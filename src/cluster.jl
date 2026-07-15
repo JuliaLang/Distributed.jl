@@ -1350,7 +1350,7 @@ function atexit_handler()
         terminate_all_workers()
     end
 
-    shutting_down[] = true
+    Threads.atomic_xchg!(shutting_down, true)
     @lock any_gc_flag notify(any_gc_flag)
     if !isnothing(gc_msgs_task)
         wait(gc_msgs_task::Task)
