@@ -294,15 +294,55 @@ function start_worker(out::IO, cookie::AbstractString=readline(stdin); close_std
 end
 
 
+"""
+    worker_output_hook
+
+Internal, unstable hook for customizing how a worker's output lines are displayed.
+
+`worker_output_hook[]` may be set to a transform function
+`f(ident::AbstractString, line::AbstractString) -> AbstractString` that maps a line of
+worker output to the string that should be printed for it. This lets test harnesses or
+other callers provide richer context about what each worker is doing (e.g. which test is
+running) instead of the default `" From worker \$ident:\\t\$line"` prefix. The returned
+string is printed as-is, so it may carry `StyledStrings` styling; `Distributed` still owns
+the actual printing.
+
+When `worker_output_hook[]` is `nothing` (the default) the standard prefix is used.
+
+This is an internal implementation detail with no compatibility guarantees; it may be
+changed or removed at any time.
+
+# Example
+```julia
+Distributed.worker_output_hook[] = (ident, line) -> "[worker \$ident] \$line"
+```
+"""
+const worker_output_hook = Ref{Union{Nothing, Function}}(nothing)
+
+const _worker_output_prefix = " From worker "
+
 function redirect_worker_output(ident, stream)
     t = @async while !eof(stream)
         line = readline(stream)
-        if startswith(line, "      From worker ")
+        if startswith(line, _worker_output_prefix)
             # stdout's of "additional" workers started from an initial worker on a host are not available
             # on the master directly - they are routed via the initial worker's stdout.
             println(line)
         else
-            println("      From worker $(ident):\t$line")
+            hook = worker_output_hook[]
+            out = nothing
+            if hook !== nothing
+                try
+                    out = hook(ident, line)::AbstractString
+                catch
+                    out = nothing # a broken hook must not swallow worker output
+                end
+            end
+            if out === nothing
+                println("$(_worker_output_prefix)$(ident):\t$line")
+            else
+                println(out)
+            end
         end
     end
     errormonitor(t)
