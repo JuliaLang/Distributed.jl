@@ -371,6 +371,28 @@ function CachingPool(workers::Vector{Int})
 end
 
 """
+    CachingPool(func, workers::Vector{Int})
+
+Excute `func(pool)`, clearing out any cached functions from the workers when complete.
+
+# Examples
+```julia
+CachingPool(workers()) do wp
+    foo = rand(10^8);
+    pmap(wp, i -> sum(foo) + i, 1:100);
+end
+"""
+function CachingPool(func, workers::Vector{Int})
+    pool = CachingPool(workers)
+    try
+        func(pool)
+    finally
+        clear!(pool)
+    end
+end
+
+
+"""
     clear!(pool::CachingPool) -> pool
 
 Removes all cached functions from all participating workers.
