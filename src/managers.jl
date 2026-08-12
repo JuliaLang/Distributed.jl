@@ -474,12 +474,10 @@ end
 
 Base.show(io::IO, manager::LocalManager) = print(io, "LocalManager()")
 
-function launch(manager::LocalManager, params::Dict, launched::Array, c::Condition)
-    dir = params[:dir]
-    exename = params[:exename]
-    exeflags = params[:exeflags]
-    bind_to = manager.restrict ? `127.0.0.1` : `$(LPROC.bind_addr)`
-    env = Dict{String,String}(params[:env])
+# The environment a worker launched on this host needs in order to run the same code as this
+# process.
+function local_worker_env(env=Dict{String,String}(); enable_threaded_blas::Bool=false)
+    env = Dict{String,String}(env)
 
     # TODO: Maybe this belongs in base/initdefs.jl as a package_environment() function
     #       together with load_path() etc. Might be useful to have when spawning julia
@@ -497,7 +495,7 @@ function launch(manager::LocalManager, params::Dict, launched::Array, c::Conditi
 
     # If we haven't explicitly asked for threaded BLAS, prevent OpenBLAS from starting
     # up with multiple threads, thereby sucking up a bunch of wasted memory on Windows.
-    if !params[:enable_threaded_blas] &&
+    if !enable_threaded_blas &&
        get(env, "OPENBLAS_NUM_THREADS", nothing) === nothing
         env["OPENBLAS_NUM_THREADS"] = "1"
     end
@@ -509,10 +507,39 @@ function launch(manager::LocalManager, params::Dict, launched::Array, c::Conditi
         env["JULIA_PROJECT"] = project
     end
 
+    return env
+end
+
+# A command for another julia process on this host, configured the way `addprocs` configures a
+# worker's, so that it runs the same code as this process.
+function local_julia_cmd(; exename=joinpath(Sys.BINDIR, julia_exename()), exeflags=``,
+                         dir=pwd(), env::Dict{String,String}=local_worker_env())
+    return setenv(addenv(`$(julia_cmd(exename)) $exeflags`, env), dir=dir)
+end
+
+# `local_julia_cmd` for a worker. Detached, since a worker must not share its master's process
+# group.
+function local_worker_cmd(; restrict::Bool=true, exeflags=``, kwargs...)
+    bind_to = restrict ? `127.0.0.1` : `$(LPROC.bind_addr)`
+    return detach(local_julia_cmd(; exeflags=`$exeflags --bind-to $bind_to --worker`, kwargs...))
+end
+
+# Start one `local_worker_cmd`, cookie already written to it, leaving the caller to drive the
+# connection setup protocol (see `create_worker`). We hold its stdin and stdout, and
+# `start_worker` redirects its stderr onto that stdout, so we are the only reader of everything
+# it reports.
+function launch_local_worker(; kwargs...)
+    io = open(local_worker_cmd(; kwargs...), "r+")
+    write_cookie(io)
+    return io
+end
+
+function launch(manager::LocalManager, params::Dict, launched::Array, c::Condition)
+    env = local_worker_env(params[:env]; enable_threaded_blas=params[:enable_threaded_blas])
+
     for i in 1:manager.np
-        cmd = `$(julia_cmd(exename)) $exeflags --bind-to $bind_to --worker`
-        io = open(detach(setenv(addenv(cmd, env), dir=dir)), "r+")
-        write_cookie(io)
+        io = launch_local_worker(; exename=params[:exename], exeflags=params[:exeflags],
+                                 dir=params[:dir], restrict=manager.restrict, env)
 
         wconfig = WorkerConfig()
         wconfig.process = io

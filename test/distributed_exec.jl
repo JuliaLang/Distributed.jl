@@ -1286,17 +1286,17 @@ function launch(manager::ErrorSimulator, params::Dict, launched::Array, c::Condi
     exename = params[:exename]
     dir = params[:dir]
 
-    cmd = `$(Base.julia_cmd(exename)) --startup-file=no`
     if manager.mode === :timeout
-        cmd = `$cmd -e "sleep(10)"`
+        exeflags = `--startup-file=no -e "sleep(10)"`
     elseif manager.mode === :ntries
-        cmd = `$cmd -e "[println(x) for x in 1:1001]"`
+        exeflags = `--startup-file=no -e "[println(x) for x in 1:1001]"`
     elseif manager.mode === :exit
-        cmd = `$cmd -e "exit(-1)"`
+        exeflags = `--startup-file=no -e "exit(-1)"`
     else
         error("Unknown mode")
     end
-    io = open(detach(setenv(cmd, dir=dir)))
+    # everything a local worker is launched with except for `--worker` itself
+    io = open(detach(Distributed.local_julia_cmd(; exename, exeflags, dir)))
 
     wconfig = WorkerConfig()
     wconfig.process = io
@@ -1996,6 +1996,40 @@ begin
             redirect_stderr(devnull)
         end
         wait(rmprocs([w]))
+    end
+end
+
+# Test that a worker doesn't outlive its connection to master. The misbehaving master is simulated here.
+let io = Distributed.launch_local_worker(; exename=test_exename)
+    try
+        host, port = Distributed.read_worker_host_port(io.out)
+        sock = connect(host, port)
+
+        # act like pid 1 on the wire, without registering a `Worker` for it here; nothing
+        # local refers to the pid we hand it
+        Distributed.send_connection_hdr(sock, true)
+        hdr = Distributed.MsgHeader(Distributed.RRID(0, 0), Distributed.RRID(0, 0))
+        join_message = Distributed.JoinPGRPMsg(maximum(procs()) + 1, [], :all_to_all, false, false)
+        Distributed.write_msg(sock, Distributed.ClusterSerializer(sock), hdr, join_message)
+        flush(sock)
+
+        # the worker is primed once it answers
+        @test Distributed.process_hdr(sock, false) isa VersionNumber
+        _, msg = Distributed.read_msg(sock, Distributed.ClusterSerializer(sock))
+        @test msg isa Distributed.JoinCompleteMsg
+        @test process_running(io)
+
+        close(io)     # nothing reads its stderr pipe now, so reporting throws EPIPE
+        close(sock)   # and pid 1 is gone, so its message loop sees an EOFError
+
+        watchdog = Timer(_ -> kill(io, Base.SIGKILL), 60)   # never hang the suite on this
+        wait(io)
+        close(watchdog)
+        @test io.exitcode == 1
+    finally
+        # don't leak the worker if anything above threw
+        process_running(io) && kill(io, Base.SIGKILL)
+        close(io)
     end
 end
 

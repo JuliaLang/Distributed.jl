@@ -170,7 +170,12 @@ function deliver_result(sock::IO, msg, oid, value)
     catch e
         # terminate connection in case of serialization error
         # otherwise the reading end would hang
-        @error "Fatal error on process $(myid())" exception=e,catch_backtrace()
+        # a worker's stderr is a pipe to its master (see `start_worker`), so reporting can
+        # itself throw EPIPE; the teardown below has to run either way
+        try
+            @error "Fatal error on process $(myid())" exception=e,catch_backtrace()
+        catch
+        end
         wid = worker_id_from_socket(sock)
         close(sock)
         if myid()==1
@@ -226,13 +231,21 @@ function message_handler_loop(r_stream::IO, w_stream::IO, incoming::Bool)
         serializer = ClusterSerializer(r_stream)
 
         # The first message will associate wpid with r_stream
-        header = deserialize_hdr_raw(r_stream)
-        msg = deserialize_msg(serializer)
+        header, msg = read_msg(r_stream, serializer, boundary)
         handle_msg(msg, header, r_stream, w_stream, version)
         wpid = worker_id_from_socket(r_stream)
         @assert wpid > 0
 
-        readbytes!(r_stream, boundary, length(MSG_BOUNDARY))
+        if wpid == 1 && myid() != 1
+            # this worker should not outlive its connection to master
+            exiter = @task exit(1)
+            exiter.sticky = false
+            if isdefined(Base, :schedule_on_notify!)
+                Base.schedule_on_notify!(current_task(), exiter)
+            else
+                Base._wait2(current_task(), exiter)
+            end
+        end
 
         while true
             reset_state(serializer)
@@ -285,14 +298,19 @@ function message_handler_loop(r_stream::IO, w_stream::IO, incoming::Bool)
         end
 
         if wpid < 1
-            println(stderr, e, CapturedException(e, catch_backtrace()))
-            println(stderr, "Process($(myid())) - Unknown remote, closing connection.")
+            # reporting may throw (see `deliver_result`); the cleanup below still runs
+            try
+                println(stderr, e, CapturedException(e, catch_backtrace()))
+                println(stderr, "Process($(myid())) - Unknown remote, closing connection.")
+            catch
+            end
         elseif !(wpid in map_del_wrkr)
             werr = worker_from_id(wpid)
             oldstate = @atomic werr.state
             set_worker_state(werr, W_TERMINATED)
 
             # If unhandleable error occurred talking to pid 1, exit
+            # the exit armed above covers this too, should the report below throw
             if wpid == 1
                 if isopen(w_stream)
                     @error "Fatal error on process $(myid())" exception=e,catch_backtrace()
@@ -439,7 +457,11 @@ function connect_to_peer(manager::ClusterManager, rpid::Int, wconfig::WorkerConf
         send_msg_now(w, MsgHeader(), IdentifySocketMsg(myid()))
         notify(w.initialized)
     catch e
-        @error "Error on $(myid()) while connecting to peer $rpid, exiting" exception=e,catch_backtrace()
+        # reporting may throw (see `deliver_result`); the exit below still runs
+        try
+            @error "Error on $(myid()) while connecting to peer $rpid, exiting" exception=e,catch_backtrace()
+        catch
+        end
         exit(1)
     end
 end
