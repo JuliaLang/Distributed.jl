@@ -510,7 +510,7 @@ function launch(manager::LocalManager, params::Dict, launched::Array, c::Conditi
     end
 
     for i in 1:manager.np
-        cmd = `$(julia_cmd(exename)) $exeflags --bind-to $bind_to --worker`
+        cmd = `$(julia_cmd(exename)) -q $exeflags --bind-to $bind_to --worker`
         io = open(detach(setenv(addenv(cmd, env), dir=dir)), "r+")
         write_cookie(io)
 

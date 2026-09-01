@@ -1286,7 +1286,7 @@ function launch(manager::ErrorSimulator, params::Dict, launched::Array, c::Condi
     exename = params[:exename]
     dir = params[:dir]
 
-    cmd = `$(Base.julia_cmd(exename)) --startup-file=no`
+    cmd = `$(Base.julia_cmd(exename)) -q --startup-file=no`
     if manager.mode === :timeout
         cmd = `$cmd -e "sleep(10)"`
     elseif manager.mode === :ntries
@@ -1809,7 +1809,7 @@ let code = """
         @assert Distributed.remotecall_fetch(f, w) == w
     end
     """
-    @test success(`$(Base.julia_cmd()) --startup-file=no -e $code`)
+    @test success(`$(Base.julia_cmd()) -q --startup-file=no -e $code`)
 end
 
 # PR 32431: tests for internal Distributed.head_and_tail
@@ -1856,7 +1856,7 @@ for p in procs()
 end
 
 # Propagation of package environments for local workers (#28781)
-let julia = `$(Base.julia_cmd()) --startup-file=no`; mktempdir() do tmp
+let julia = `$(Base.julia_cmd()) -q --startup-file=no`; mktempdir() do tmp
     project = mkdir(joinpath(tmp, "project"))
     depots = [mkdir(joinpath(tmp, "depot1")), mkdir(joinpath(tmp, "depot2"))]
     load_path = [mkdir(joinpath(tmp, "load_path")), "@stdlib", "@"]
