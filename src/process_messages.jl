@@ -294,10 +294,14 @@ function message_handler_loop(r_stream::IO, w_stream::IO, incoming::Bool)
 
             # If unhandleable error occurred talking to pid 1, exit
             if wpid == 1
-                if isopen(w_stream)
-                    @error "Fatal error on process $(myid())" exception=e,catch_backtrace()
+                try
+                    if isopen(w_stream)
+                        @error "Fatal error on process $(myid())" exception=e,catch_backtrace()
+                    end
+                finally
+                    # Logging may fail if the master has closed the output pipe.
+                    exit(1)
                 end
-                exit(1)
             end
 
             # Will treat any exception as death of node and cleanup
