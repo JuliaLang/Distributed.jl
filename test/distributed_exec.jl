@@ -1976,6 +1976,7 @@ let julia = `$(Base.julia_cmd()) --startup-file=no`; mktempdir() do tmp
 end end
 
 include("splitrange.jl")
+include("worker_exit.jl")
 
 # Clear all workers for timeout tests (issue #45785)
 nprocs() > 1 && rmprocs(workers())
