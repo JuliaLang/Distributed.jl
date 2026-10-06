@@ -249,10 +249,11 @@ function launch_on_machine(manager::SSHManager, machine::AbstractString, cnt, pa
     if length(machine_bind) > 1
         exeflags = `--bind-to $(machine_bind[2]) $exeflags`
     end
+    # `-q` keeps precompilation reports out of the output the master relays from workers
     if cmdline_cookie
-        exeflags = `$exeflags --worker=$(cluster_cookie())`
+        exeflags = `-q $exeflags --worker=$(cluster_cookie())`
     else
-        exeflags = `$exeflags --worker`
+        exeflags = `-q $exeflags --worker`
     end
 
     host, portnum = parse_machine(machine_bind[1])
@@ -521,7 +522,8 @@ end
 # group.
 function local_worker_cmd(; restrict::Bool=true, exeflags=``, kwargs...)
     bind_to = restrict ? `127.0.0.1` : `$(LPROC.bind_addr)`
-    return detach(local_julia_cmd(; exeflags=`$exeflags --bind-to $bind_to --worker`, kwargs...))
+    # `-q` keeps precompilation reports out of the output the master relays from workers
+    return detach(local_julia_cmd(; exeflags=`-q $exeflags --bind-to $bind_to --worker`, kwargs...))
 end
 
 # Start one `local_worker_cmd`, cookie already written to it, leaving the caller to drive the
