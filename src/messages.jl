@@ -168,6 +168,28 @@ function deserialize_hdr_raw(io)
     return MsgHeader(RRID(data[1], data[2]), RRID(data[3], data[4]))
 end
 
+# Write one message in the wire format described at the top of this file. Takes a plain stream
+# rather than a `Worker`, since the connection setup protocol (see `create_worker`) runs before
+# either end has a `Worker` for the other. Locking and flushing `io` is the caller's job.
+function write_msg(io::IO, serializer::AbstractSerializer, header, msg)
+    reset_state(serializer)
+    serialize_hdr_raw(io, header)
+    invokelatest(serialize_msg, serializer, msg)  # io is wrapped in serializer
+    write(io, MSG_BOUNDARY)
+    return nothing
+end
+
+# The inverse, for readers that can let a deserialization error propagate. `message_handler_loop`
+# reads its messages inline instead, so that it can recover from one by resynchronizing on the
+# boundary.
+function read_msg(io::IO, serializer::AbstractSerializer, boundary::Vector{UInt8}=similar(MSG_BOUNDARY))
+    reset_state(serializer)
+    header = deserialize_hdr_raw(io)
+    msg = deserialize_msg(serializer)
+    readbytes!(io, boundary, length(MSG_BOUNDARY))
+    return header, msg
+end
+
 function send_msg_(w::Worker, header, msg, now::Bool)
     check_worker_state(w)
     if myid() != 1 && !isa(msg, IdentifySocketMsg) && !isa(msg, IdentifySocketAckMsg)
@@ -176,11 +198,7 @@ function send_msg_(w::Worker, header, msg, now::Bool)
     io = w.w_stream
     lock(io)
     try
-        reset_state(w.w_serializer)
-        serialize_hdr_raw(io, header)
-        invokelatest(serialize_msg, w.w_serializer, msg)  # io is wrapped in w_serializer
-        write(io, MSG_BOUNDARY)
-
+        write_msg(io, w.w_serializer, header, msg)
         if !now && w.gcflag
             flush_gc_msgs(w)
         else
@@ -204,12 +222,13 @@ function flush_gc_msgs()
     end
 end
 
-function send_connection_hdr(w::Worker, cookie=true)
+function send_connection_hdr(io::IO, cookie=true)
     # For a connection initiated from the remote side to us, we only send the version,
     # else when we initiate a connection we first send the cookie followed by our version.
     # The remote side validates the cookie.
     if cookie
-        write(w.w_stream, LPROC.cookie)
+        write(io, LPROC.cookie)
     end
-    write(w.w_stream, rpad(VERSION_STRING, HDR_VERSION_LEN)[1:HDR_VERSION_LEN])
+    write(io, rpad(VERSION_STRING, HDR_VERSION_LEN)[1:HDR_VERSION_LEN])
 end
+send_connection_hdr(w::Worker, cookie=true) = send_connection_hdr(w.w_stream, cookie)
