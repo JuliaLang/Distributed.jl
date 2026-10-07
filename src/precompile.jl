@@ -1,6 +1,8 @@
 precompile(Tuple{typeof(Distributed.remotecall),Function,Int,Module,Vararg{Any, 100}})
 precompile(Tuple{typeof(Distributed.procs)})
 precompile(Tuple{typeof(Distributed.finalize_ref), Distributed.Future})
+# Runs at exit of every session (and precompile process) that loads Distributed.
+precompile(Tuple{typeof(Distributed.atexit_handler)})
 # This is disabled because it doesn't give much benefit
 # and the code in Distributed is poorly typed causing many invalidations
 # TODO: Maybe reenable now that Distributed is not in sysimage.
