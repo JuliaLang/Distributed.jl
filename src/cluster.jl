@@ -706,6 +706,8 @@ function create_worker(manager::ClusterManager, wconfig::WorkerConfig)
         connect(manager, w_stub.id, wconfig)
     catch ex
         try
+            # Wake any `create_worker` of a higher pid waiting for this one to leave `W_CREATED`
+            set_worker_state(w_stub, W_TERMINATED)
             deregister_worker(w_stub.id)
             kill(manager, w_stub.id, wconfig)
         finally
@@ -757,7 +759,8 @@ function create_worker(manager::ClusterManager, wconfig::WorkerConfig)
                         wait(worker_state_cond)
                     end
                 end
-                push!(join_list, jw)
+                # skip a worker that failed to connect
+                (@atomic jw.state) === W_CONNECTED && push!(join_list, jw)
             end
         end
 

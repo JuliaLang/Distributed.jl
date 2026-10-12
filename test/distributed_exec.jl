@@ -1305,6 +1305,44 @@ function launch(manager::ErrorSimulator, params::Dict, launched::Array, c::Condi
     notify(c)
 end
 
+# A failed `connect` to one worker must not leave the setup of workers with higher pids
+# waiting for it forever
+struct FailFirstConnect <: ClusterManager
+    lm::Distributed.LocalManager
+    failed::Threads.Atomic{Bool}
+end
+FailFirstConnect(np) = FailFirstConnect(Distributed.LocalManager(np, true), Threads.Atomic{Bool}(false))
+launch(m::FailFirstConnect, params::Dict, launched::Array, c::Condition) = launch(m.lm, params, launched, c)
+manage(m::FailFirstConnect, id::Integer, config::WorkerConfig, op::Symbol) = manage(m.lm, id, config, op)
+function Distributed.connect(m::FailFirstConnect, pid::Int, config::WorkerConfig)
+    if !Threads.atomic_xchg!(m.failed, true)
+        # give the other workers time to start waiting on this one
+        sleep(10)
+        kill(config.process)
+        error("simulated connection failure")
+    end
+    return Distributed.connect(m.lm, pid, config)
+end
+
+@testset "failed connect to a worker does not hang addprocs" begin
+    before = workers()
+    t = @async try
+        addprocs_with_testenv(FailFirstConnect(3))
+    catch ex
+        ex
+    end
+    @test timedwait(() -> istaskdone(t), 120) === :ok
+    if istaskdone(t)
+        ex = fetch(t)
+        @test ex isa CompositeException
+        @test occursin("simulated connection failure", sprint(showerror, ex))
+        added = setdiff(workers(), before)
+        @test length(added) == 2
+        @test all(p -> remotecall_fetch(myid, p) == p, added)
+        rmprocs(added)
+    end
+end
+
 testruns = Any[]
 
 if DoFullTest
