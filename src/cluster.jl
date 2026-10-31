@@ -1463,7 +1463,13 @@ function atexit_handler()
     Threads.atomic_xchg!(shutting_down, true)
     @lock any_gc_flag notify(any_gc_flag)
     if !isnothing(gc_msgs_task)
-        wait(gc_msgs_task::Task)
+        if isdefined(Base, :process_terminating) && Base.process_terminating()
+            # A termination signal has already cancelled the task, so it fails
+            # instead of flushing; wait for it to end without rethrowing that.
+            Base._wait(gc_msgs_task::Task)
+        else
+            wait(gc_msgs_task::Task)
+        end
     end
 end
 
