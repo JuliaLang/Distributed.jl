@@ -1462,7 +1462,9 @@ function atexit_handler()
 
     Threads.atomic_xchg!(shutting_down, true)
     @lock any_gc_flag notify(any_gc_flag)
-    if !isnothing(gc_msgs_task)
+    # Julia's termination fallback runs exit hooks on a thread outside every threadpool,
+    # while the thread that runs this task may be busy, so don't wait for it there.
+    if !isnothing(gc_msgs_task) && Threads.threadpool() !== :foreign
         wait(gc_msgs_task::Task)
     end
 end
