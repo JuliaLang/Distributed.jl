@@ -2033,6 +2033,40 @@ let io = Distributed.launch_local_worker(; exename=test_exename)
     end
 end
 
+# A termination request with the main task busy: Julia's fallback runs the exit hooks on a
+# thread outside the threadpools, and this package's hook must not wait for a task that the
+# busy thread would have to run.
+if Sys.isunix() && isdefined(Base, :process_terminating)
+    @testset "exit hook in the termination fallback" begin
+        code = """
+            using Distributed
+            println("READY")
+            function spin()
+                x = 0.0
+                while true
+                    x += sin(x) + 1e-9
+                end
+                return x
+            end
+            spin()
+            """
+        out = Pipe()
+        p = run(pipeline(`$(Base.julia_cmd()) --startup-file=no -e $code`; stdout=out, stderr=out); wait=false)
+        close(out.in)
+        readuntil(out, "READY\n")
+        reader = @async read(out, String)
+        t0 = time()
+        kill(p, Base.SIGTERM)
+        watchdog = Timer(_ -> kill(p, Base.SIGKILL), 60)   # never hang the suite on this
+        wait(p)
+        close(watchdog)
+        fetch(reader)
+        @test p.termsignal == Base.SIGTERM
+        # the fallback starts after 2 s, and its deadline is 5 s after that
+        @test time() - t0 < 6
+    end
+end
+
 # Run topology tests last after removing all workers, since a given
 # cluster at any time only supports a single topology.
 if nprocs() > 1
