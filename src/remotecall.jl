@@ -275,8 +275,7 @@ const any_gc_flag = Threads.Condition()
 gc_msgs_task::Union{Task, Nothing} = nothing
 
 function start_gc_msgs_task()
-    # shielded from cancellation: the exit hook waits for this task to flush and stop
-    t = Base.ScopedValues.with(Base.CANCEL_TOKEN => nothing) do
+    global gc_msgs_task = errormonitor(
         @async begin
             while !shutting_down[]
                 lock(any_gc_flag) do
@@ -289,8 +288,7 @@ function start_gc_msgs_task()
                 invokelatest(flush_gc_msgs) # handles throws internally
             end
         end
-    end
-    global gc_msgs_task = errormonitor(t)
+    )
 end
 
 # Function can be called within a finalizer
