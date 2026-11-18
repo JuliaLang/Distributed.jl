@@ -282,6 +282,43 @@ end
 test_remoteref_dgc(id_me)
 test_remoteref_dgc(id_other)
 
+# A reference that arrives again after the GC cleared its old object, but before that
+# object's finalizer ran, must survive the finalizer.
+function collect_then_replace(mkref, replace)
+    old = Ref{Any}(mkref())
+    wr, rrid = WeakRef(old[]), remoteref_id(old[])
+    r2 = lock(Distributed.client_refs) do # finalize_ref re-queues itself while this is held
+        old[] = nothing
+        GC.gc()
+        @test wr.value === nothing
+        replace(rrid)
+    end
+    GC.gc()
+    yield() # flush gc msgs
+    return r2, rrid
+end
+has_ref(id, rrid) = remotecall_fetch(k -> (yield(); haskey(Distributed.PGRP.refs, k)), id, rrid)
+function test_replaced_ref_dgc(id)
+    rr, rrid = collect_then_replace(() -> (c = RemoteChannel(id); put!(c, :OK); c),
+                                    rrid -> RemoteChannel{Channel{Any}}(id, rrid))
+    @test has_ref(id, rrid)
+    @test isready(rr)
+    @test getkey(Distributed.client_refs, rr, nothing) === rr
+
+    f, rrid = collect_then_replace(() -> remotecall(identity, id, :OK),
+                                   rrid -> Future(id, rrid))
+    @test has_ref(id, rrid)
+    @test timedwait(() -> isready(f), 10) === :ok
+
+    # a replacement that arrives with the value cached does not need the owner
+    f, rrid = collect_then_replace(() -> remotecall(identity, id, :OK),
+                                   rrid -> Future(id, rrid, Some(:OK)))
+    @test poll_while(() -> has_ref(id, rrid))
+    @test fetch(f) === :OK
+end
+test_replaced_ref_dgc(id_me)
+test_replaced_ref_dgc(id_other)
+
 # if sent to another worker, it should not be deleted till the other worker has also finalized.
 let wid1 = workers()[1],
     wid2 = workers()[2],

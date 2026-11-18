@@ -94,15 +94,23 @@ function finalize_ref(r::AbstractRemoteRef)
     if r.where > 0 # Handle the case of the finalizer having been called manually
         if trylock(client_refs.lock) # trylock doesn't call wait which causes yields
             try
-                delete!(client_refs.ht, r) # direct removal avoiding locks
-                if isa(r, RemoteChannel)
-                    send_del_client_no_lock(r)
-                else
-                    # send_del_client only if the reference has not been set
-                    v_cache = @atomic :monotonic r.v
-                    v_cache === nothing && send_del_client_no_lock(r)
-                    @atomic :monotonic r.v = nothing
+                # The GC clears the weak key before running this finalizer, so an entry
+                # for this RRID can belong to a replacement object that arrived since.
+                # It keeps its entry, and this process's client registration if it needs it.
+                key = getkey(client_refs.ht, r, nothing)
+                other = key === nothing ? nothing : key.value
+                other === r && (other = nothing)
+                other === nothing && delete!(client_refs.ht, r) # direct removal avoiding locks
+                if other === nothing || !needs_client(other)
+                    if isa(r, RemoteChannel)
+                        send_del_client_no_lock(r)
+                    else
+                        # send_del_client only if the reference has not been set
+                        v_cache = @atomic :monotonic r.v
+                        v_cache === nothing && send_del_client_no_lock(r)
+                    end
                 end
+                isa(r, Future) && @atomic :monotonic r.v = nothing
                 r.where = 0
             finally
                 unlock(client_refs.lock)
@@ -114,6 +122,11 @@ function finalize_ref(r::AbstractRemoteRef)
     end
     nothing
 end
+
+# A Future with a cached value no longer depends on the owner; if it arrived cached,
+# it never registered as a client either.
+needs_client(r::Future) = (@atomic :monotonic r.v) === nothing
+needs_client(::RemoteChannel) = true
 
 """
     Future(pid::Integer=myid())
