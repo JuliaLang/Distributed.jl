@@ -13,6 +13,10 @@ using Test: Test, @testset
         # We will ignore Base:
         Base,
 
+        # The compiler is a separate root module, not a submodule of Base, but
+        # it is reached through Base's backtrace handling:
+        Base.Compiler,
+
         # We'll ignore the Serialization stdlib:
         Serialization,
     )

@@ -86,8 +86,7 @@ jobs:
             persist-credentials: false
       - uses: julia-actions/setup-julia@latest
         with:
-          version: '1'
-          # version: 'nightly'
+          version: 'nightly'
       - uses: julia-actions/cache@v3
       - run: julia --color=yes --project=ci/jet -e 'import Pkg; Pkg.instantiate()'
       - name: Run the JET tests
