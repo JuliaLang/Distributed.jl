@@ -217,6 +217,53 @@ put!(f, :OK)
 @test remotecall_fetch(k->haskey(Distributed.PGRP.refs, k), wid1, fid) == false
 @test fetch(f) === :OK
 
+# Unregistering this process from a Future's owner must not strand an owner call that
+# another task already started on the same Future. The calls are parked before their owner
+# lookup on a lock that `action` can re-enter from this task.
+function with_parked_ops(action, f::Future, ops)
+    owner_entry() = remotecall_fetch(k->haskey(Distributed.PGRP.refs, k), f.where, remoteref_id(f))
+    l = f.where == myid() ? Distributed.client_refs : Distributed.worker_from_id(f.where).w_stream
+    lock(l)
+    ts = try
+        ts = [@async op(f) for op in ops]
+        yield()
+        @test f.pins == length(ops)
+        action()
+        ts
+    finally
+        unlock(l)
+    end
+    @test timedwait(() -> all(istaskdone, ts), 60) === :ok
+    @test f.pins == 0
+    @test poll_while(owner_entry; timeout_seconds=10)
+    return [istaskdone(t) ? fetch(t) : nothing for t in ts]
+end
+for owner in (myid(), wid1)
+    # a local fetch would deadlock this harness if fetch held f.lock across its owner lookup
+    for op in (wait, isready, fetch)
+        local f = Future(owner)
+        isready(f) # create the RemoteValue on the owner
+        @test with_parked_ops(() -> put!(f, :OK), f, (op,)) ==
+              [op === wait ? f : op === isready ? true : :OK]
+    end
+
+    let f = Future(owner)
+        isready(f)
+        @test with_parked_ops(() -> put!(f, :OK), f, (wait, isready, fetch)) == [f, true, :OK]
+    end
+
+    # adopting a cached copy, as deserializing a fetched Future does
+    let f = Future(owner)
+        remotecall_fetch(rid -> (put!(Distributed.lookup_ref(rid), :OK); nothing), owner, remoteref_id(f))
+        @test with_parked_ops(f, (wait,)) do
+            Future(owner, remoteref_id(f), Some(:OK))
+            yield() # let the del_client of an eager unregistration be queued
+            Distributed.flush_gc_msgs()
+        end == [f]
+        @test fetch(f) === :OK
+    end
+end
+
 # Test this multiple times as races have been seen where `@spawn` was used over
 # `@async`. Issue #124
 max_attempts = 100
@@ -327,6 +374,24 @@ function test_replaced_ref_dgc(id)
 end
 test_replaced_ref_dgc(id_me)
 test_replaced_ref_dgc(id_other)
+
+# Same, for a replacement that got its value while an owner call is in flight: it still
+# needs the owner until that call is done. The old object's finalizer is run explicitly, at
+# the point where it would be stranding the call.
+function test_replaced_pinned_future(id)
+    rrid = Distributed.RRID()
+    remotecall_fetch(rid -> (put!(Distributed.lookup_ref(rid), :OK); nothing), id, rrid)
+    f = Future(id, rrid)
+    old = Future((id, rrid.whence, rrid.id, nothing)) # unregistered, like a collected object
+    @test with_parked_ops(f, (wait,)) do
+        Future(id, rrid, Some(:OK))
+        Distributed.finalize_ref(old)
+        yield() # let a del_client be queued
+        Distributed.flush_gc_msgs()
+    end == [f]
+end
+test_replaced_pinned_future(id_me)
+test_replaced_pinned_future(id_other)
 
 # if sent to another worker, it should not be deleted till the other worker has also finalized.
 let wid1 = workers()[1],
