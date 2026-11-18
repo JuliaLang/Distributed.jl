@@ -6,3 +6,7 @@ Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 
 [sources]
 Distributed = {path = "../.."}
+
+# Distributed needs Julia nightly, which JET does not officially support yet.
+[preferences.JET]
+allow_unsupported_julia = true

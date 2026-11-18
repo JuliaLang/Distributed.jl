@@ -450,7 +450,7 @@ end
 function parse_connection_info(str)
     m = match(r"^julia_worker:(\d+)#(.*)", str)
     if m !== nothing
-        (String(m.captures[2]), parse(UInt16, m.captures[1]))
+        (String(notnothing(m.captures[2])), parse(UInt16, notnothing(m.captures[1])))
     else
         ("", UInt16(0))
     end
@@ -763,8 +763,9 @@ function create_worker(manager::ClusterManager, wconfig::WorkerConfig)
 
     elseif PGRP.topology === :custom
         # wait for requested workers to be up before connecting to them.
+        connect_idents = wconfig.connect_idents
         filterfunc(x) = (x.id != 1) && isdefined(x, :config) &&
-            (notnothing(x.config.ident) in something(wconfig.connect_idents, []))
+            (notnothing(x.config.ident) in something(connect_idents, []))
 
         deadline = time_ns() + timeout * 1e9
         # Recompute `wlist` under the lock before each wait so we never miss a
@@ -774,8 +775,8 @@ function create_worker(manager::ClusterManager, wconfig::WorkerConfig)
         @lock worker_state_cond begin
             while true
                 wlist = filter(filterfunc, PGRP.workers)
-                (wconfig.connect_idents === nothing ||
-                    length(wlist) >= length(wconfig.connect_idents)) && break
+                (connect_idents === nothing ||
+                    length(wlist) >= length(connect_idents)) && break
                 if !wait_or_deadline(worker_state_cond, deadline)
                     error("peer workers did not connect within $timeout seconds")
                 end
