@@ -15,14 +15,14 @@ mutable struct ClusterSerializer{I<:IO} <: AbstractSerializer
 
     pid::Int                                     # Worker we are connected to.
     tn_obj_sent::Set{UInt64}                     # TypeName objects sent
-    glbs_sent::Dict{Symbol, Tuple{UInt64, UInt64}}   # (key,value) -> (symbol, (hash_value, objectid))
+    glbs_sent::Dict{Symbol, Tuple{UInt64, WeakRef}}  # symbol -> (hash, weak reference)
     glbs_in_tnobj::Dict{UInt64, Vector{Symbol}}  # Track globals referenced in
                                                  # anonymous functions.
     anonfunc_id::UInt64
 
     function ClusterSerializer{I}(io::I) where I<:IO
         new(io, 0, IdDict(), Int[], worker_id_from_socket(io),
-            Set{UInt64}(), Dict{UInt64, UInt64}(), Dict{UInt64, Vector{Symbol}}(), 0)
+            Set{UInt64}(), Dict{Symbol, Tuple{UInt64, WeakRef}}(), Dict{UInt64, Vector{Symbol}}(), 0)
     end
 end
 ClusterSerializer(io::IO) = ClusterSerializer{typeof(io)}(io)
@@ -119,8 +119,10 @@ end
 # Send/resend a global binding if
 # a) has not been sent previously, i.e., we are seeing this binding for the first time, or,
 # b) hash value has changed or
-# c) hash value is same but of a different object, i.e. objectid has changed or
+# c) it is bound to a different object, or
 # d) is a bits type
+# Non-isbits values are tracked by a weak reference, as a different value can have the same hash
+# and objectid (e.g. a redefined type).
 function syms_2b_sent(s::ClusterSerializer, identifier)
     lst = Symbol[]
     check_syms = get(s.glbs_in_tnobj, identifier, Symbol[])
@@ -132,8 +134,8 @@ function syms_2b_sent(s::ClusterSerializer, identifier)
         else
             if haskey(s.glbs_sent, sym)
                 # We have sent this binding before, see if it has changed.
-                hval, oid = s.glbs_sent[sym]
-                if hval != hash(sym, hash(v)) || oid != objectid(v)
+                hval, ref = s.glbs_sent[sym]
+                if hval != hash(sym, hash(v)) || ref.value !== v
                     push!(lst, sym)
                 end
             else
@@ -148,7 +150,7 @@ function serialize_global_from_main(s::ClusterSerializer, sym)
     v = getfield(Main, sym)
 
     if !isbits(v)
-        s.glbs_sent[sym] = (hash(sym, hash(v)), objectid(v))
+        s.glbs_sent[sym] = (hash(sym, hash(v)), WeakRef(v))
     end
 
     serialize(s, isconst(Main, sym))
