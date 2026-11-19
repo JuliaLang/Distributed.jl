@@ -343,7 +343,7 @@ test_remoteref_dgc(id_other)
 function collect_then_replace(mkref, replace)
     old = Ref{Any}(mkref())
     wr, rrid = WeakRef(old[]), remoteref_id(old[])
-    r2 = lock(Distributed.client_refs) do # finalize_ref re-queues itself while this is held
+    r2 = lock(Distributed.client_refs) do # finalize_ref runs only once this is released
         old[] = nothing
         GC.gc()
         @test wr.value === nothing
@@ -359,7 +359,7 @@ function test_replaced_ref_dgc(id)
                                     rrid -> RemoteChannel{Channel{Any}}(id, rrid))
     @test has_ref(id, rrid)
     @test isready(rr)
-    @test getkey(Distributed.client_refs, rr, nothing) === rr
+    @test @lock(Distributed.client_refs, Distributed.client_refs.refs[rrid].value) === rr
 
     f, rrid = collect_then_replace(() -> remotecall(identity, id, :OK),
                                    rrid -> Future(id, rrid))
@@ -392,6 +392,30 @@ function test_replaced_pinned_future(id)
 end
 test_replaced_pinned_future(id_me)
 test_replaced_pinned_future(id_other)
+
+# A finalizer that finds `client_refs` locked by another task must still unregister its
+# reference once the lock is free, without waiting for another GC: under contention, that
+# GC would find the lock taken again. `f` stays rooted, so no GC can be what finalizes it.
+function test_finalize_while_locked(id)
+    f = remotecall_wait(identity, id, :OK)
+    rrid = remoteref_id(f)
+    @test has_ref(id, rrid)
+    locked, release = Threads.Event(), Threads.Event()
+    t = @async lock(Distributed.client_refs) do
+        notify(locked)
+        wait(release)
+    end
+    wait(locked)
+    finalize(f)
+    @test f.where == id # deferred until the lock is free
+    notify(release)
+    wait(t)
+    # the drainer writes `f.where` under the lock, possibly on another thread
+    @test poll_while(() -> (@lock Distributed.client_refs f.where) != 0; timeout_seconds=10)
+    @test poll_while(() -> has_ref(id, rrid); timeout_seconds=10)
+end
+test_finalize_while_locked(id_me)
+test_finalize_while_locked(id_other)
 
 # if sent to another worker, it should not be deleted till the other worker has also finalized.
 let wid1 = workers()[1],

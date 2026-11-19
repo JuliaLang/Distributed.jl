@@ -4,6 +4,32 @@ import Base: eltype
 
 abstract type AbstractRemoteRef end
 
+# Not a `WeakKeyDict`: its keys hash like the objects they point to, so once the GC clears
+# them they all hash alike, and growing a table full of collected references takes
+# quadratic time. Keyed by RRID instead, with `finalize_ref` removing each entry.
+mutable struct ClientRefs
+    const lock::ReentrantLock
+    const refs::Dict{RRID, WeakRef}
+    # finalizers that found `lock` taken, and whether a task is running them
+    deferred::Vector{AbstractRemoteRef}
+    draining::Bool
+    const deferred_lock::Threads.SpinLock
+end
+ClientRefs() = ClientRefs(ReentrantLock(), Dict{RRID, WeakRef}(), AbstractRemoteRef[], false,
+                          Threads.SpinLock())
+Base.lock(c::ClientRefs) = lock(c.lock)
+Base.lock(f, c::ClientRefs) = lock(f, c.lock)
+Base.unlock(c::ClientRefs) = unlock(c.lock)
+Base.trylock(c::ClientRefs) = trylock(c.lock)
+Base.islocked(c::ClientRefs) = islocked(c.lock)
+Base.isempty(c::ClientRefs) = @lock c isempty(c.refs)
+
+# the live reference registered for `rrid`, if any; call with the lock held
+function client_ref(rrid::RRID)
+    wr = get(client_refs.refs, rrid, nothing)
+    return wr === nothing ? nothing : wr.value
+end
+
 """
     client_refs
 
@@ -12,7 +38,7 @@ Tracks whether a particular `AbstractRemoteRef`
 
 The `client_refs` lock is also used to synchronize access to `.refs` and associated `clientset` state.
 """
-const client_refs = WeakKeyDict{AbstractRemoteRef, Nothing}() # used as a WeakKeySet
+const client_refs = ClientRefs()
 
 """
     Future(w::Int, rrid::RRID, v::Union{Some, Nothing}=nothing)
@@ -71,9 +97,10 @@ function test_existing_ref(r::AbstractRemoteRef)
     # Look up and insert atomically: concurrent arrivals of one reference must
     # share one object, as the owner tracks a single client bit per process.
     found = lock(client_refs) do
-        found = getkey(client_refs, r, nothing)
+        rrid = remoteref_id(r)
+        found = client_ref(rrid)
         if found === nothing
-            client_refs[r] = nothing
+            client_refs.refs[rrid] = WeakRef(r)
             finalizer(finalize_ref, r)
         end
         found
@@ -99,36 +126,93 @@ function test_existing_ref(r::AbstractRemoteRef)
 end
 
 function finalize_ref(r::AbstractRemoteRef)
-    if r.where > 0 # Handle the case of the finalizer having been called manually
-        if trylock(client_refs.lock) # trylock doesn't call wait which causes yields
-            try
-                # The GC clears the weak key before running this finalizer, so an entry
-                # for this RRID can belong to a replacement object that arrived since.
-                # It keeps its entry, and this process's client registration if it needs it.
-                key = getkey(client_refs.ht, r, nothing)
-                other = key === nothing ? nothing : key.value
-                other === r && (other = nothing)
-                other === nothing && delete!(client_refs.ht, r) # direct removal avoiding locks
-                if other === nothing || !needs_client(other)
-                    if isa(r, RemoteChannel)
-                        send_del_client_no_lock(r)
-                    else
-                        # send_del_client only if the reference has not been set
-                        v_cache = @atomic :monotonic r.v
-                        v_cache === nothing && send_del_client_no_lock(r)
-                    end
-                end
-                isa(r, Future) && @atomic :monotonic r.v = nothing
-                r.where = 0
-            finally
-                unlock(client_refs.lock)
+    r.where > 0 || return nothing # the finalizer was called manually
+    if trylock(client_refs.lock) # trylock doesn't call wait which causes yields
+        try
+            finalize_ref_locked(r)
+        finally
+            unlock(client_refs.lock)
+        end
+    else
+        # Re-registering the finalizer would postpone this to the next GC, and under
+        # contention, over and over. Defer to a task instead.
+        start = @lock client_refs.deferred_lock begin
+            push!(client_refs.deferred, r)
+            start = !client_refs.draining
+            client_refs.draining = true
+            start
+        end
+        if start
+            # shielded from cancellation: if it never drains, nothing would start another
+            t = Base.ScopedValues.with(Base.CANCEL_TOKEN => nothing) do
+                Threads.@spawn drain_deferred_finalizers()
             end
-        else
-            finalizer(finalize_ref, r)
-            return nothing
+            errormonitor(t)
         end
     end
     nothing
+end
+
+# Runs deferred finalizers until none are left. Taking `client_refs` per batch rather than
+# for the whole backlog lets other tasks register and look up references in between.
+function drain_deferred_finalizers()
+    try
+        drain_deferred_finalizers_loop()
+    catch
+        # let the next deferral start a new drainer rather than queue forever
+        @lock client_refs.deferred_lock client_refs.draining = false
+        rethrow()
+    end
+end
+
+function drain_deferred_finalizers_loop()
+    while true
+        rs = @lock client_refs.deferred_lock begin
+            rs = client_refs.deferred
+            if isempty(rs)
+                client_refs.draining = false
+                return
+            end
+            client_refs.deferred = AbstractRemoteRef[]
+            rs
+        end
+        for batch in Iterators.partition(rs, 1000)
+            lock(client_refs) do
+                for r in batch
+                    try
+                        finalize_ref_locked(r)
+                    catch err
+                        # as for a failing finalizer: report it and carry on with the others
+                        @error "Error finalizing a remote reference" exception=(err, catch_backtrace())
+                    end
+                end
+            end
+            yield()
+        end
+    end
+end
+
+function finalize_ref_locked(r::AbstractRemoteRef)
+    r.where > 0 || return
+    # The GC clears the weak reference before running this finalizer, so an entry for
+    # this RRID can belong to a replacement object that arrived since. It keeps its
+    # entry, and this process's client registration if it needs it.
+    rrid = remoteref_id(r)
+    other = client_ref(rrid)
+    other === r && (other = nothing)
+    other === nothing && delete!(client_refs.refs, rrid)
+    if other === nothing || !needs_client(other)
+        if isa(r, RemoteChannel)
+            send_del_client_no_lock(r)
+        else
+            # send_del_client only if the reference has not been set
+            v_cache = @atomic :monotonic r.v
+            v_cache === nothing && send_del_client_no_lock(r)
+        end
+    end
+    isa(r, Future) && @atomic :monotonic r.v = nothing
+    r.where = 0
+    return
 end
 
 # A Future depends on the owner until it has a cached value and no owner calls in flight
