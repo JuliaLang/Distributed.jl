@@ -28,11 +28,12 @@ mutable struct Future <: AbstractRemoteRef
     id::Int
     lock::ReentrantLock
     @atomic v::Union{Some{Any}, Nothing}
+    pins::Int # owner calls in flight, guarded by `lock`; see `pin_future`
 
     Future(w::Int, rrid::RRID, v::Union{Some, Nothing}=nothing) =
-        (r = new(w,rrid.whence,rrid.id,ReentrantLock(),v); return test_existing_ref(r))
+        (r = new(w,rrid.whence,rrid.id,ReentrantLock(),v,0); return test_existing_ref(r))
 
-    Future(t::NTuple{4, Any}) = new(t[1],t[2],t[3],ReentrantLock(),t[4])  # Useful for creating dummy, zeroed-out instances
+    Future(t::NTuple{4, Any}) = new(t[1],t[2],t[3],ReentrantLock(),t[4],0)  # Useful for creating dummy, zeroed-out instances
 end
 
 """
@@ -85,10 +86,11 @@ function test_existing_ref(r::AbstractRemoteRef)
             rv_cache = @atomic :monotonic r.v
             if fv_cache === nothing && rv_cache !== nothing
                 # we have recd the value from another source, probably a deserialized ref, send a del_client message
-                send_del_client(r)
-                @lock found.lock begin
-                    @atomicreplace found.v nothing => rv_cache
+                unregister = @lock found.lock begin
+                    _, ok = @atomicreplace found.v nothing => rv_cache
+                    ok && found.pins == 0
                 end
+                unregister && send_del_client(r)
             end
         end
         return found::typeof(r)
@@ -129,9 +131,9 @@ function finalize_ref(r::AbstractRemoteRef)
     nothing
 end
 
-# A Future with a cached value no longer depends on the owner; if it arrived cached,
-# it never registered as a client either.
-needs_client(r::Future) = (@atomic :monotonic r.v) === nothing
+# A Future depends on the owner until it has a cached value and no owner calls in flight
+# (see `pin_future`). If it arrived cached, it never registered as a client either.
+needs_client(r::Future) = (@atomic :acquire r.v) === nothing || r.pins > 0
 needs_client(::RemoteChannel) = true
 
 """
@@ -198,6 +200,28 @@ function channel_from_id(id)
     return rv.c
 end
 
+# Once this process holds a Future's value it unregisters from the owner, which may then
+# drop the RemoteValue. An owner call already under way would find no entry, create an
+# empty one and block on it forever. Such calls therefore pin the Future, and this process
+# unregisters only once the value is cached and no pins remain.
+# Returns false, without pinning, if the value is already cached.
+function pin_future(r::Future)
+    @lock r.lock begin
+        (@atomic :monotonic r.v) === nothing || return false
+        r.pins += 1
+    end
+    return true
+end
+
+function unpin_future(r::Future)
+    unregister = @lock r.lock begin
+        r.pins -= 1
+        r.pins == 0 && (@atomic :monotonic r.v) !== nothing
+    end
+    unregister && send_del_client(r)
+    nothing
+end
+
 lookup_ref(rrid::RRID, f=def_rv_channel) = lookup_ref(PGRP, rrid, f)
 function lookup_ref(pg, rrid, f)
     return lock(client_refs) do
@@ -232,13 +256,18 @@ function isready(rr::Future)
     v_cache = @atomic rr.v
     v_cache === nothing || return true
 
-    return GC.@preserve rr begin # see `call_on_owner`
-        rid = remoteref_id(rr)
-        if rr.where == myid()
-            isready(lookup_ref(rid).c)
-        else
-            remotecall_fetch(rid->isready(lookup_ref(rid).c), rr.where, rid)
+    pin_future(rr) || return true
+    try
+        return GC.@preserve rr begin # see `call_on_owner`
+            rid = remoteref_id(rr)
+            if rr.where == myid()
+                isready(lookup_ref(rid).c)
+            else
+                remotecall_fetch(rid->isready(lookup_ref(rid).c), rr.where, rid)
+            end
         end
+    finally
+        unpin_future(rr)
     end
 end
 
@@ -614,7 +643,17 @@ end
 
 Wait for a value to become available for the specified [`Future`](@ref).
 """
-wait(r::Future) = (v_cache = @atomic r.v; v_cache !== nothing && return r; call_on_owner(wait_ref, r, myid()); r)
+function wait(r::Future)
+    v_cache = @atomic r.v
+    v_cache !== nothing && return r
+    pin_future(r) || return r
+    try
+        call_on_owner(wait_ref, r, myid())
+    finally
+        unpin_future(r)
+    end
+    r
+end
 
 """
     wait(r::RemoteChannel, args...)
@@ -634,46 +673,19 @@ function fetch(r::Future)
     v_cache = @atomic r.v
     v_cache !== nothing && return something(v_cache)
 
-    if r.where == myid()
-        rv, v_cache = @lock r.lock begin
-            v_cache = @atomic :monotonic r.v
-            rv = v_cache === nothing ? lookup_ref(remoteref_id(r)) : nothing
-            rv, v_cache
-        end
-
-        if v_cache !== nothing
-            return something(v_cache)
-        else
-            v_local = fetch(rv.c)
-        end
-    else
+    pin_future(r) || return something(@atomic r.v)
+    try
         v_local = call_on_owner(fetch_ref, r)
-    end
-
-    v_cache = @atomic r.v
-
-    if v_cache === nothing # call_on_owner case
+        # A concurrent put! or fetch may have cached first; return the cached value then.
         v_old, status = @lock r.lock begin
             @atomicreplace r.v nothing => Some(v_local)
         end
-        # status == true - when value obtained through call_on_owner
-        # status == false - any other situation: atomicreplace fails, because by the time the lock is obtained cache will be populated
-        # why? local put! performs caching and putting into channel under r.lock
-
-        # for local put! use the cached value, for call_on_owner cases just take the v_local as it was just cached in r.v
-
         # remote calls getting the value from `call_on_owner` used to return the value directly without wrapping it in `Some(x)`
         # so we're doing the same thing here
-        if status
-            send_del_client(r)
-            return v_local
-        else # this `v_cache` is returned at the end of the function
-            v_cache = v_old
-        end
+        return status ? v_local : something(v_old)
+    finally
+        unpin_future(r)
     end
-
-    send_del_client(r)
-    something(v_cache)
 end
 
 fetch_ref(rid, args...) = fetch(lookup_ref(rid).c, args...)
@@ -702,14 +714,15 @@ function put!(r::Future, v)
         rid = remoteref_id(r)
         rv = lookup_ref(rid)
         isready(rv) && error("Future can be set only once")
-        @lock r.lock begin
+        unregister = @lock r.lock begin
             put!(rv, v) # this notifies the tasks waiting on the channel in fetch
             set_future_cache(r, v) # set the cache before leaving the lock, so that the notified tasks already see it cached
+            r.pins == 0
         end
-        del_client(rid, myid())
+        unregister && del_client(rid, myid())
     else
         @lock r.lock begin # same idea as above if there were any local tasks fetching on this Future
-            call_on_owner(put_future, r, v, myid())
+            call_on_owner(put_future, r, v, myid(), r.pins == 0)
             set_future_cache(r, v)
         end
     end
@@ -721,12 +734,13 @@ function set_future_cache(r::Future, v)
     ok || error("internal consistency error detected for Future")
 end
 
-function put_future(rid, v, caller)
+function put_future(rid, v, caller, unregister::Bool)
     rv = lookup_ref(rid)
     isready(rv) && error("Future can be set only once")
     put!(rv, v)
-    # The caller has the value and hence can be removed from the remote store.
-    del_client(rid, caller)
+    # The caller has the value and hence can be removed from the remote store,
+    # unless it has owner calls in flight; it then unregisters when they finish.
+    unregister && del_client(rid, caller)
     nothing
 end
 
