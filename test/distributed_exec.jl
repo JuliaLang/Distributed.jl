@@ -1455,6 +1455,36 @@ global mrefs = TestSerCnt(fill(1.,10))
 @test testsercnt_d[objectid(mrefs)] == 1
 
 
+# Globals rebound to values involving a redefined type, or a type of a replaced module, are
+# resent, although they can have the same hash and objectid as before.
+@everywhere module ResendProbe
+    struct T
+        old::Int
+    end
+end
+global resend_t = ResendProbe.T
+global resend_u = (ResendProbe.T,)
+global resend_v = Vector{ResendProbe.T}
+@test remotecall_fetch(()->fieldnames(resend_t), id_other) == (:old,)
+@test remotecall_fetch(()->fieldnames(resend_u[1]), id_other) == (:old,)
+@test remotecall_fetch(()->fieldnames(eltype(resend_v)), id_other) == (:old,)
+@everywhere Core.eval(ResendProbe, :(struct T
+    new::Int
+end))
+global resend_t = ResendProbe.T
+global resend_u = (ResendProbe.T,)
+global resend_v = Vector{ResendProbe.T}
+@test remotecall_fetch(()->fieldnames(resend_t), id_other) == (:new,)
+@test remotecall_fetch(()->fieldnames(resend_u[1]), id_other) == (:new,)
+@test remotecall_fetch(()->fieldnames(eltype(resend_v)), id_other) == (:new,)
+@everywhere module ResendProbe
+    struct T
+        replaced::Int
+    end
+end
+global resend_t = ResendProbe.T
+@test remotecall_fetch(()->fieldnames(resend_t), id_other) == (:replaced,)
+
 # nested anon functions
 global f1 = x->x
 global f2 = x->f1(x)
