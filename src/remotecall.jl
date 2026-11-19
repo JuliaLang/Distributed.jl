@@ -86,11 +86,18 @@ function test_existing_ref(r::AbstractRemoteRef)
             rv_cache = @atomic :monotonic r.v
             if fv_cache === nothing && rv_cache !== nothing
                 # we have recd the value from another source, probably a deserialized ref, send a del_client message
-                unregister = @lock found.lock begin
-                    _, ok = @atomicreplace found.v nothing => rv_cache
-                    ok && found.pins == 0
+                # This may run on the task that reads the owner's reply to a remote `put!`,
+                # which holds the lock until then: don't wait for it. Filling in the cache
+                # is only an optimization, and that `put!` caches the value itself.
+                if trylock(found.lock)
+                    unregister = try
+                        _, ok = @atomicreplace found.v nothing => rv_cache
+                        ok && found.pins == 0
+                    finally
+                        unlock(found.lock)
+                    end
+                    unregister && send_del_client(r)
                 end
-                unregister && send_del_client(r)
             end
         end
         return found::typeof(r)
