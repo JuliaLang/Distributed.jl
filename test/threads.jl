@@ -62,3 +62,26 @@ isfailed(rr) = fetch_from_owner(istaskfailed, rr)
 
     rmprocs(procs_added)
 end
+
+@testset "Concurrent construction of one remote reference" begin
+    pid = only(addprocs(1; exeflags=(exeflags[1:end-1]..., "--threads=4")))
+    ndups = remotecall_fetch(pid) do
+        n = Threads.nthreads()
+        count(1:1000) do _
+            rrid = Distributed.RRID()
+            arrived = Threads.Atomic{Int}(0)
+            rs = Vector{Any}(undef, n)
+            Threads.@threads :static for i in 1:n
+                Threads.atomic_add!(arrived, 1)
+                while arrived[] < n
+                    GC.safepoint()
+                end
+                # what deserializing a reference does
+                rs[i] = Future(myid(), rrid)
+            end
+            any(r -> r !== rs[1], rs)
+        end
+    end
+    @test ndups == 0
+    rmprocs(pid)
+end

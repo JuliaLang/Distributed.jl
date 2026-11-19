@@ -67,7 +67,16 @@ mutable struct RemoteChannel{T<:AbstractChannel} <: AbstractRemoteRef
 end
 
 function test_existing_ref(r::AbstractRemoteRef)
-    found = getkey(client_refs, r, nothing)
+    # Look up and insert atomically: concurrent arrivals of one reference must
+    # share one object, as the owner tracks a single client bit per process.
+    found = lock(client_refs) do
+        found = getkey(client_refs, r, nothing)
+        if found === nothing
+            client_refs[r] = nothing
+            finalizer(finalize_ref, r)
+        end
+        found
+    end
     if found !== nothing
         @assert r.where > 0
         if isa(r, Future)
@@ -84,9 +93,6 @@ function test_existing_ref(r::AbstractRemoteRef)
         end
         return found::typeof(r)
     end
-
-    client_refs[r] = nothing
-    finalizer(finalize_ref, r)
     return r
 end
 
