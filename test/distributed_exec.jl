@@ -1272,6 +1272,9 @@ for f in [ ()->addprocs(1; exeflags=test_exeflags), ()->rmprocs(workers()) ]
     end
 end
 
+# Workers start with `-q`, so their reports of precompilation are not relayed to the master
+@test remotecall_fetch(() -> Base.JLOptions().quiet, id_other) == 1
+
 # Test the following addprocs error conditions
 # - invalid host name - github issue #20372
 # - julia exe exiting with an error
