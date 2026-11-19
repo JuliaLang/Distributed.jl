@@ -179,6 +179,15 @@ end
 test_futures_dgc(id_me)
 test_futures_dgc(id_other)
 
+# An operation must keep its reference alive: otherwise a GC while the owner
+# looks up the value lets the finalizer delete it, and the operation waits on
+# a freshly created, empty value forever.
+# The reference is created inside the function so that nothing else keeps it alive.
+owner_value_probe(rid) = (Distributed.lookup_ref(rid); GC.gc(); GC.gc(); haskey(Distributed.PGRP.refs, rid))
+owner_value_survives_gc(::Type{T}, pid) where {T} = Distributed.call_on_owner(owner_value_probe, T(pid))
+@test owner_value_survives_gc(Future, id_me)
+@test owner_value_survives_gc(RemoteChannel, id_me)
+
 # if sent to another worker, it should not be deleted till all references are fetched.
 wid1 = workers()[1]
 wid2 = workers()[2]

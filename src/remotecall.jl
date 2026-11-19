@@ -213,11 +213,13 @@ function isready(rr::Future)
     v_cache = @atomic rr.v
     v_cache === nothing || return true
 
-    rid = remoteref_id(rr)
-    return if rr.where == myid()
-        isready(lookup_ref(rid).c)
-    else
-        remotecall_fetch(rid->isready(lookup_ref(rid).c), rr.where, rid)
+    return GC.@preserve rr begin # see `call_on_owner`
+        rid = remoteref_id(rr)
+        if rr.where == myid()
+            isready(lookup_ref(rid).c)
+        else
+            remotecall_fetch(rid->isready(lookup_ref(rid).c), rr.where, rid)
+        end
     end
 end
 
@@ -230,11 +232,13 @@ time you receive its result it may no longer be true. However,
 it can be safely used on a [`Future`](@ref) since they are assigned only once.
 """
 function isready(rr::RemoteChannel, args...)
-    rid = remoteref_id(rr)
-    return if rr.where == myid()
-        isready(lookup_ref(rid).c, args...)
-    else
-        remotecall_fetch(rid->isready(lookup_ref(rid).c, args...), rr.where, rid)
+    return GC.@preserve rr begin # see `call_on_owner`
+        rid = remoteref_id(rr)
+        if rr.where == myid()
+            isready(lookup_ref(rid).c, args...)
+        else
+            remotecall_fetch(rid->isready(lookup_ref(rid).c, args...), rr.where, rid)
+        end
     end
 end
 
@@ -562,11 +566,15 @@ remote_do(f, id::Integer, args...; kwargs...) = remote_do(f, worker_from_id(id),
 
 # have the owner of rr call f on it
 function call_on_owner(f, rr::AbstractRemoteRef, args...)
-    rid = remoteref_id(rr)
-    if rr.where == myid()
-        f(rid, args...)
-    else
-        remotecall_fetch(f, rr.where, rid, args...)
+    # `f` only gets the id: keep `rr` alive until it returns, or its finalizer
+    # could delete the owner's value and `f` would create and wait on a fresh one.
+    GC.@preserve rr begin
+        rid = remoteref_id(rr)
+        if rr.where == myid()
+            f(rid, args...)
+        else
+            remotecall_fetch(f, rr.where, rid, args...)
+        end
     end
 end
 
