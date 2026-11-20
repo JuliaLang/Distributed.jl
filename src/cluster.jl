@@ -1159,13 +1159,17 @@ julia> workers()
 function rmprocs(pids...; waitfor=typemax(Int))
     cluster_mgmt_from_master_check()
 
-    pids = vcat(pids...)
+    # not `vcat(pids...)`, which `vcat` methods for `Number` in packages invalidate
+    pidlist = Int[]
+    for p in pids
+        append!(pidlist, p)
+    end
     if waitfor == 0
-        t = @async _rmprocs(pids, typemax(Int))
+        t = @async _rmprocs(pidlist, typemax(Int))
         yield()
         return t
     else
-        _rmprocs(pids, waitfor)
+        _rmprocs(pidlist, waitfor)
         # return a dummy task object that user code can wait on.
         return @async nothing
     end
@@ -1545,7 +1549,8 @@ function process_opts(opts)
 
     # load processes from machine file
     if opts.machine_file != C_NULL
-        addprocs(load_machine_file(unsafe_string(opts.machine_file)); exeflags=exeflags)
+        # behind `invokelatest` to keep the SSH launch path out of `process_opts`'s precompile
+        invokelatest(addprocs, load_machine_file(unsafe_string(opts.machine_file)); exeflags=exeflags)
     end
     return nothing
 end
