@@ -264,6 +264,25 @@ for owner in (myid(), wid1)
     end
 end
 
+# A remote put! holds the Future's lock until the owner replies. A cached copy of the Future
+# that the owner sends before that reply must not block the task that reads the reply.
+# The owner orders the two by holding its stream to us while it waits for the value.
+let f = Future(wid1), started = RemoteChannel()
+    t = remotecall(wid1, f, started, myid()) do f, started, caller
+        stream = Distributed.worker_from_id(caller).w_stream
+        @lock stream begin
+            put!(started, true)
+            fetch(f)
+            remote_do(identity, caller, f)
+        end
+    end
+    take!(started)
+    put_task = @async put!(f, :OK)
+    @test timedwait(() -> istaskdone(put_task), 60) === :ok
+    @test fetch(f) === :OK
+    wait(t)
+end
+
 # Test this multiple times as races have been seen where `@spawn` was used over
 # `@async`. Issue #124
 max_attempts = 100
